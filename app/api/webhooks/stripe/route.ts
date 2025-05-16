@@ -175,6 +175,13 @@ export async function POST(req: NextRequest) {
                   throw new Error("Email is required for updating a contact")
                 }
 
+                // Add a check for empty phone number
+                if (phone && typeof phone === "string" && phone.trim() === "") {
+                  console.log("Removing empty phone number to prevent API errors in webhook")
+                  const phoneValue: string | undefined = undefined
+                  phone = phoneValue
+                }
+
                 const updateResult = await updateClickFunnelsContact({
                   email,
                   first_name: firstName || "",

@@ -360,6 +360,12 @@ export async function handleSuccessfulPayment(sessionId: string) {
           throw new Error("Email is required for updating a contact")
         }
 
+        // Add a check for empty phone number
+        if (phone && typeof phone === "string" && phone.trim() === "") {
+          console.log("Removing empty phone number to prevent API errors")
+          const phoneValue: string | undefined = undefined
+        }
+
         const updateResult = await updateClickFunnelsContact({
           email: customerEmail,
           first_name: firstName as string,
