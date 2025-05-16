@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createCheckoutSession } from "@/lib/actions"
 import { loadStripe } from "@stripe/stripe-js"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertCircle } from "lucide-react"
 
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
@@ -23,6 +25,7 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [isCompany, setIsCompany] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     email: "",
     firstName: "",
@@ -44,8 +47,27 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setError(null)
 
     try {
+      console.log("Submitting form with data:", {
+        productId: product.id,
+        customerEmail: formData.email,
+        customerFirstName: formData.firstName,
+        customerLastName: formData.lastName,
+        customerPhone: formData.phone,
+        customerBirthDate: formData.birthDate,
+        companyDetails: isCompany
+          ? {
+              name: formData.companyName,
+              vatNumber: formData.vatNumber,
+              address: formData.address,
+              postalCode: formData.postalCode,
+              city: formData.city,
+            }
+          : undefined,
+      })
+
       const { sessionId } = await createCheckoutSession({
         productId: product.id,
         customerEmail: formData.email,
@@ -64,14 +86,19 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
           : undefined,
       })
 
+      console.log("Session ID received:", sessionId)
+
       // Redirect to Stripe Checkout
       const stripe = await stripePromise
       if (stripe) {
+        console.log("Redirecting to Stripe checkout...")
         await stripe.redirectToCheckout({ sessionId })
+      } else {
+        throw new Error("Stripe kon niet worden geladen")
       }
     } catch (error) {
       console.error("Checkout error:", error)
-      alert("Er is een fout opgetreden bij het verwerken van je betaling. Probeer het later opnieuw.")
+      setError("Er is een fout opgetreden bij het verwerken van je betaling. Probeer het later opnieuw.")
     } finally {
       setIsLoading(false)
     }
@@ -79,6 +106,14 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg border border-[#1e1839]/10 shadow-md">
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Fout</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="space-y-4">
         <div>
           <Label htmlFor="email" className="text-[#1e1839]">
@@ -277,6 +312,11 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
 
       <div className="text-center text-[#1e1839]/60 text-sm">
         <p>Veilig betalen via Stripe. Je gegevens worden versleuteld verzonden.</p>
+        {product.price < 100 && (
+          <p className="mt-2 text-amber-600">
+            <strong>Test Modus:</strong> Dit is een testbetaling van {(product.price / 100).toFixed(2)} euro.
+          </p>
+        )}
       </div>
     </form>
   )

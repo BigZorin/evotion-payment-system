@@ -51,7 +51,7 @@ export const products: Product[] = [
     id: "12-weken-vetverlies",
     name: "12-Weken Vetverlies Programma",
     description: "Compleet programma voor duurzaam vetverlies",
-    price: 49, // €0.49 (voor testen)
+    price: 50, // €0.50 (voor testen - minimale prijs voor Stripe)
     features: [
       "Gepersonaliseerd voedingsplan",
       "Wekelijkse trainingsschema's",
