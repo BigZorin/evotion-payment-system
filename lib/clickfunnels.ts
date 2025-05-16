@@ -217,6 +217,30 @@ export async function updateClickFunnelsContact(contact: ClickFunnelsContact) {
       delete contactWithoutPhone.phone
 
       try {
+        // We need to get the contactId and existingContact first
+        const SEARCH_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts?filter[email_address]=${encodeURIComponent(
+          contact.email,
+        )}`
+        const searchResponse = await fetch(SEARCH_URL, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${API_TOKEN}`,
+            Accept: "application/json",
+          },
+        })
+
+        if (!searchResponse.ok) {
+          return { success: false, error: `Fout bij zoeken naar contact: ${searchResponse.status}` }
+        }
+
+        const searchData = await searchResponse.json()
+        if (!searchData.data || searchData.data.length === 0) {
+          return { success: false, error: "Contact niet gevonden" }
+        }
+
+        const existingContact = searchData.data[0]
+        const contactId = existingContact.id
+
         const UPDATE_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts/${contactId}`
         const retryResponse = await fetch(UPDATE_URL, {
           method: "PATCH",
@@ -270,20 +294,18 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
     const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/courses/${enrollment.course_id}/enrollments`
 
     console.log(`Using ClickFunnels Enrollment API URL: ${API_URL}`)
-    console.log(
-      `Enrollment data:`,
-      JSON.stringify(
-        {
-          courses_enrollment: {
-            contact_id: enrollment.contact_id,
-            origination_source_type: enrollment.origination_source_type || "api",
-            origination_source_id: enrollment.origination_source_id || 0,
-          },
-        },
-        null,
-        2,
-      ),
-    )
+
+    // Updated enrollment data structure based on the example
+    const enrollmentData = {
+      courses_enrollment: {
+        contact_id: enrollment.contact_id,
+        suspended: false, // Add this field based on the example
+        origination_source_type: enrollment.origination_source_type || "api",
+        origination_source_id: enrollment.origination_source_id || 1,
+      },
+    }
+
+    console.log(`Enrollment data:`, JSON.stringify(enrollmentData, null, 2))
 
     // Create the enrollment in ClickFunnels
     const response = await fetch(API_URL, {
@@ -293,13 +315,7 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
         Authorization: `Bearer ${API_TOKEN}`,
         Accept: "application/json",
       },
-      body: JSON.stringify({
-        courses_enrollment: {
-          contact_id: enrollment.contact_id,
-          origination_source_type: enrollment.origination_source_type || "api",
-          origination_source_id: enrollment.origination_source_id || 0,
-        },
-      }),
+      body: JSON.stringify(enrollmentData),
     })
 
     const responseText = await response.text()
@@ -308,6 +324,24 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
 
     if (!response.ok) {
       console.error("ClickFunnels Enrollment API error:", responseText)
+
+      // Try to parse the error response for more details
+      try {
+        const errorData = JSON.parse(responseText)
+        console.error("Detailed enrollment error:", errorData)
+
+        // Check if there's a specific error message we can handle
+        if (errorData.errors && errorData.errors.length > 0) {
+          const errorMessages = errorData.errors
+            .map((err: any) => err.detail || err.message || JSON.stringify(err))
+            .join(", ")
+          throw new Error(`ClickFunnels Enrollment API error: ${errorMessages}`)
+        }
+      } catch (parseError) {
+        // If we can't parse the error, just continue with the original error
+        console.error("Could not parse error response:", parseError)
+      }
+
       throw new Error(`ClickFunnels Enrollment API error: ${response.status}`)
     }
 

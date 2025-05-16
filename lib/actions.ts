@@ -361,16 +361,17 @@ export async function handleSuccessfulPayment(sessionId: string) {
         }
 
         // Add a check for empty phone number
-        if (phone && typeof phone === "string" && phone.trim() === "") {
+        let phoneValue = phone as string
+        if (phoneValue && phoneValue.trim() === "") {
           console.log("Removing empty phone number to prevent API errors")
-          const phoneValue: string | undefined = undefined
+          phoneValue = ""
         }
 
         const updateResult = await updateClickFunnelsContact({
           email: customerEmail,
           first_name: firstName as string,
           last_name: lastName as string,
-          phone: phone as string,
+          phone: phoneValue,
           tags: [metadata?.membershipLevel || "basic", "stripe-customer", "paid-customer"],
           custom_fields: {
             product_id: productId || "",
@@ -400,7 +401,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
             email: customerEmail as string,
             first_name: firstName as string,
             last_name: lastName as string,
-            phone: phone as string,
+            phone: phoneValue,
             tags: [metadata?.membershipLevel || "basic", "stripe-customer", "paid-customer"],
             custom_fields: {
               product_id: productId || "",
@@ -429,25 +430,62 @@ export async function handleSuccessfulPayment(sessionId: string) {
           const existingEnrollments = await getContactEnrollments(contactId, Number.parseInt(courseId))
           console.log("Existing enrollments:", existingEnrollments)
 
-          if (existingEnrollments.success && existingEnrollments.data.courses_enrollments.length > 0) {
+          if (
+            existingEnrollments.success &&
+            existingEnrollments.data.courses_enrollments &&
+            existingEnrollments.data.courses_enrollments.length > 0
+          ) {
             console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping enrollment.`)
             response = { ...response, hasEnrollment: true }
           } else {
             console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
-            enrollmentResult = await createCourseEnrollment({
-              contact_id: contactId,
-              course_id: Number.parseInt(courseId),
-              origination_source_type: "stripe_checkout",
-              origination_source_id: 1,
-            })
 
-            console.log("Enrollment result:", enrollmentResult)
+            // Make sure we're passing a number for contact_id and course_id
+            const contactIdNum = Number(contactId)
+            const courseIdNum = Number.parseInt(courseId)
 
-            if (enrollmentResult.success) {
-              console.log(`Successfully enrolled contact in course:`, enrollmentResult.data)
-              response = { ...response, hasEnrollment: true }
-            } else {
-              console.error(`Failed to enroll contact in course:`, enrollmentResult.error)
+            console.log(`Using numeric IDs: contact_id=${contactIdNum}, course_id=${courseIdNum}`)
+
+            // Try multiple times with different approaches if needed
+            let enrollmentSuccess = false
+            let attempts = 0
+            const maxAttempts = 3
+
+            while (!enrollmentSuccess && attempts < maxAttempts) {
+              attempts++
+              console.log(`Enrollment attempt ${attempts} of ${maxAttempts}`)
+
+              try {
+                enrollmentResult = await createCourseEnrollment({
+                  contact_id: contactIdNum,
+                  course_id: courseIdNum,
+                  origination_source_type: "stripe_checkout",
+                  origination_source_id: 1,
+                })
+
+                console.log(`Attempt ${attempts} result:`, enrollmentResult)
+
+                if (enrollmentResult.success) {
+                  enrollmentSuccess = true
+                  console.log(`Successfully enrolled contact in course on attempt ${attempts}:`, enrollmentResult.data)
+                  response = { ...response, hasEnrollment: true }
+                  break
+                } else {
+                  console.error(`Failed to enroll contact in course on attempt ${attempts}:`, enrollmentResult.error)
+
+                  // Wait a bit before retrying
+                  await new Promise((resolve) => setTimeout(resolve, 1000))
+                }
+              } catch (enrollError) {
+                console.error(`Error during enrollment attempt ${attempts}:`, enrollError)
+
+                // Wait a bit before retrying
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+              }
+            }
+
+            if (!enrollmentSuccess) {
+              console.error(`All ${maxAttempts} enrollment attempts failed`)
               response = { ...response, hasEnrollment: false }
             }
           }
