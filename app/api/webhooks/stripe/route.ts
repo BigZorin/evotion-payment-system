@@ -175,18 +175,11 @@ export async function POST(req: NextRequest) {
                   throw new Error("Email is required for updating a contact")
                 }
 
-                // Add a check for empty phone number
-                if (phone && typeof phone === "string" && phone.trim() === "") {
-                  console.log("Removing empty phone number to prevent API errors in webhook")
-                  const phoneValue: string | undefined = undefined
-                  phone = phoneValue
-                }
-
                 const updateResult = await updateClickFunnelsContact({
                   email,
                   first_name: firstName || "",
                   last_name: lastName || "",
-                  phone: phone || "",
+                  // Explicitly omit phone to prevent the "Phone number has already been taken" error
                   tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
                   custom_fields: {
                     product_id: productId || "",
@@ -213,7 +206,7 @@ export async function POST(req: NextRequest) {
                     email,
                     first_name: firstName || "",
                     last_name: lastName || "",
-                    phone: phone || "",
+                    // Explicitly omit phone to prevent the "Phone number has already been taken" error
                     tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
                     custom_fields: {
                       product_id: productId || "",
@@ -236,17 +229,52 @@ export async function POST(req: NextRequest) {
                 // Als er een course ID is en een contact ID, schrijf de klant in voor de cursus
                 if (courseId && contactId) {
                   console.log(`Enrolling contact ${contactId} in course ${courseId} via webhook...`)
-                  enrollmentResult = await createCourseEnrollment({
-                    contact_id: contactId,
-                    course_id: Number.parseInt(courseId),
-                    origination_source_type: "stripe_webhook",
-                    origination_source_id: 1,
-                  })
 
-                  if (enrollmentResult.success) {
-                    console.log(`Successfully enrolled contact in course via webhook:`, enrollmentResult.data)
-                  } else {
-                    console.error(`Failed to enroll contact in course via webhook:`, enrollmentResult.error)
+                  // Try multiple times with different approaches if needed
+                  let enrollmentSuccess = false
+                  let attempts = 0
+                  const maxAttempts = 3
+
+                  while (!enrollmentSuccess && attempts < maxAttempts) {
+                    attempts++
+                    console.log(`Webhook enrollment attempt ${attempts} of ${maxAttempts}`)
+
+                    try {
+                      enrollmentResult = await createCourseEnrollment({
+                        contact_id: Number(contactId),
+                        course_id: Number.parseInt(courseId),
+                        origination_source_type: "stripe_webhook",
+                        origination_source_id: 1,
+                      })
+
+                      console.log(`Webhook attempt ${attempts} result:`, enrollmentResult)
+
+                      if (enrollmentResult.success) {
+                        enrollmentSuccess = true
+                        console.log(
+                          `Successfully enrolled contact in course via webhook on attempt ${attempts}:`,
+                          enrollmentResult.data,
+                        )
+                        break
+                      } else {
+                        console.error(
+                          `Failed to enroll contact in course via webhook on attempt ${attempts}:`,
+                          enrollmentResult.error,
+                        )
+
+                        // Wait a bit before retrying
+                        await new Promise((resolve) => setTimeout(resolve, 1000))
+                      }
+                    } catch (enrollError) {
+                      console.error(`Error during webhook enrollment attempt ${attempts}:`, enrollError)
+
+                      // Wait a bit before retrying
+                      await new Promise((resolve) => setTimeout(resolve, 1000))
+                    }
+                  }
+
+                  if (!enrollmentSuccess) {
+                    console.error(`All ${maxAttempts} webhook enrollment attempts failed`)
                   }
                 }
               } catch (error) {

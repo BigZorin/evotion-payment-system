@@ -19,16 +19,38 @@ export async function createClickFunnelsContact(contact: ClickFunnelsContact) {
   try {
     console.log(`Making API request to ClickFunnels with data:`, JSON.stringify(contact, null, 2))
 
-    // Add a check to see if we need to remove the phone number if it's causing issues
-    if (contact.phone && contact.phone.trim() === "") {
-      console.log("Removing empty phone number to prevent API errors")
-      delete contact.phone
-    }
-
     // Bijgewerkte URL structuur
     const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts`
 
     console.log(`Using ClickFunnels API URL: ${API_URL}`)
+
+    // Prepare the contact object in the format expected by the API
+    const contactData = {
+      contact: {
+        email_address: contact.email,
+        first_name: contact.first_name || "",
+        last_name: contact.last_name || "",
+        // Explicitly omit phone_number to prevent the "Phone number has already been taken" error
+        time_zone: contact.time_zone || null,
+        fb_url: contact.fb_url || null,
+        twitter_url: contact.twitter_url || null,
+        instagram_url: contact.instagram_url || null,
+        linkedin_url: contact.linkedin_url || null,
+        website_url: contact.website_url || null,
+      },
+    }
+
+    // Add custom attributes if they exist
+    if (contact.custom_fields) {
+      contactData.contact.custom_attributes = contact.custom_fields
+    }
+
+    // Add tags if they exist
+    if (contact.tags && contact.tags.length > 0) {
+      contactData.contact.tags = contact.tags.map((tag) => ({ name: tag }))
+    }
+
+    console.log(`Contact creation data:`, JSON.stringify(contactData, null, 2))
 
     // Create the contact in ClickFunnels
     const response = await fetch(API_URL, {
@@ -38,18 +60,7 @@ export async function createClickFunnelsContact(contact: ClickFunnelsContact) {
         Authorization: `Bearer ${API_TOKEN}`,
         Accept: "application/json",
       },
-      body: JSON.stringify({
-        contact: {
-          email_address: contact.email,
-          first_name: contact.first_name || "",
-          last_name: contact.last_name || "",
-          phone_number: contact.phone || "",
-          // Voeg tags toe als ze zijn opgegeven
-          tags: contact.tags ? contact.tags.map((tag) => ({ name: tag })) : undefined,
-          // Voeg custom attributes toe
-          custom_attributes: contact.custom_fields || {},
-        },
-      }),
+      body: JSON.stringify(contactData),
     })
 
     const responseText = await response.text()
@@ -65,50 +76,6 @@ export async function createClickFunnelsContact(contact: ClickFunnelsContact) {
     return data
   } catch (error) {
     console.error("Error creating ClickFunnels contact:", error)
-
-    // Check if the error is about duplicate phone number
-    if (error.message && error.message.includes("Phone number has already been taken")) {
-      console.log("Retrying without phone number due to duplicate phone error")
-      // Try again without the phone number
-      const contactWithoutPhone = { ...contact }
-      delete contactWithoutPhone.phone
-
-      try {
-        const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts`
-        const retryResponse = await fetch(API_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${API_TOKEN}`,
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            contact: {
-              email_address: contactWithoutPhone.email,
-              first_name: contactWithoutPhone.first_name || "",
-              last_name: contactWithoutPhone.last_name || "",
-              // No phone number this time
-              tags: contactWithoutPhone.tags ? contactWithoutPhone.tags.map((tag) => ({ name: tag })) : undefined,
-              custom_attributes: contactWithoutPhone.custom_fields || {},
-            },
-          }),
-        })
-
-        const retryResponseText = await retryResponse.text()
-        console.log(`Retry ClickFunnels API response status: ${retryResponse.status}`)
-
-        if (!retryResponse.ok) {
-          console.error("Retry ClickFunnels API error:", retryResponseText)
-          throw new Error(`Retry ClickFunnels API error: ${retryResponse.status}`)
-        }
-
-        return JSON.parse(retryResponseText)
-      } catch (retryError) {
-        console.error("Error in retry attempt:", retryError)
-        throw retryError
-      }
-    }
-
     throw error
   }
 }
@@ -116,10 +83,6 @@ export async function createClickFunnelsContact(contact: ClickFunnelsContact) {
 export async function updateClickFunnelsContact(contact: ClickFunnelsContact) {
   if (!API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
-  }
-
-  if (!CLICKFUNNELS_WORKSPACE_ID) {
-    throw new Error("ClickFunnels workspace ID is niet geconfigureerd")
   }
 
   if (!contact.email) {
@@ -164,35 +127,47 @@ export async function updateClickFunnelsContact(contact: ClickFunnelsContact) {
 
     console.log(`Bestaand contact gevonden met ID: ${contactId}`)
 
-    // Update het contact
-    const UPDATE_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts/${contactId}`
+    // Update het contact met de nieuwe cf2-stijl endpoint en body structuur
+    const UPDATE_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/contacts/${contactId}`
 
-    console.log(`Bijwerken van contact met data:`, JSON.stringify(contact, null, 2))
+    console.log(`Bijwerken van contact met nieuwe API structuur, ID: ${contactId}`)
 
-    // Add a check for empty phone number
-    if (contact.phone && typeof contact.phone === "string" && contact.phone.trim() === "") {
-      console.log("Removing empty phone number to prevent API errors")
-      delete contact.phone
+    // Prepare the contact object in the format expected by the API
+    const contactData = {
+      contact: {
+        email_address: contact.email,
+        first_name: contact.first_name || existingContact.attributes.first_name,
+        last_name: contact.last_name || existingContact.attributes.last_name,
+        // Explicitly omit phone_number to prevent the "Phone number has already been taken" error
+        time_zone: contact.time_zone || existingContact.attributes.time_zone,
+        fb_url: contact.fb_url || existingContact.attributes.fb_url,
+        twitter_url: contact.twitter_url || existingContact.attributes.twitter_url,
+        instagram_url: contact.instagram_url || existingContact.attributes.instagram_url,
+        linkedin_url: contact.linkedin_url || existingContact.attributes.linkedin_url,
+        website_url: contact.website_url || existingContact.attributes.website_url,
+      },
     }
 
+    // Add custom attributes if they exist
+    if (contact.custom_fields) {
+      contactData.contact.custom_attributes = contact.custom_fields
+    }
+
+    // Add tags if they exist
+    if (contact.tags && contact.tags.length > 0) {
+      contactData.contact.tags = contact.tags.map((tag) => ({ name: tag }))
+    }
+
+    console.log(`Contact update data:`, JSON.stringify(contactData, null, 2))
+
     const updateResponse = await fetch(UPDATE_URL, {
-      method: "PATCH",
+      method: "PUT", // Use PUT instead of PATCH
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${API_TOKEN}`,
         Accept: "application/json",
       },
-      body: JSON.stringify({
-        contact: {
-          first_name: contact.first_name || existingContact.attributes.first_name,
-          last_name: contact.last_name || existingContact.attributes.last_name,
-          phone_number: contact.phone || existingContact.attributes.phone_number,
-          // Voeg tags toe als ze zijn opgegeven
-          tags: contact.tags ? contact.tags.map((tag) => ({ name: tag })) : undefined,
-          // Voeg custom attributes toe
-          custom_attributes: contact.custom_fields || {},
-        },
-      }),
+      body: JSON.stringify(contactData),
     })
 
     const updateResponseText = await updateResponse.text()
@@ -208,74 +183,6 @@ export async function updateClickFunnelsContact(contact: ClickFunnelsContact) {
     return { success: true, data: updateData, contactId }
   } catch (error) {
     console.error("Error updating ClickFunnels contact:", error)
-
-    // Check if the error is about duplicate phone number
-    if (error.message && error.message.includes("Phone number has already been taken")) {
-      console.log("Retrying update without phone number due to duplicate phone error")
-      // Try again without the phone number
-      const contactWithoutPhone = { ...contact }
-      delete contactWithoutPhone.phone
-
-      try {
-        // We need to get the contactId and existingContact first
-        const SEARCH_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts?filter[email_address]=${encodeURIComponent(
-          contact.email,
-        )}`
-        const searchResponse = await fetch(SEARCH_URL, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${API_TOKEN}`,
-            Accept: "application/json",
-          },
-        })
-
-        if (!searchResponse.ok) {
-          return { success: false, error: `Fout bij zoeken naar contact: ${searchResponse.status}` }
-        }
-
-        const searchData = await searchResponse.json()
-        if (!searchData.data || searchData.data.length === 0) {
-          return { success: false, error: "Contact niet gevonden" }
-        }
-
-        const existingContact = searchData.data[0]
-        const contactId = existingContact.id
-
-        const UPDATE_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts/${contactId}`
-        const retryResponse = await fetch(UPDATE_URL, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${API_TOKEN}`,
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            contact: {
-              first_name: contactWithoutPhone.first_name || existingContact.attributes.first_name,
-              last_name: contactWithoutPhone.last_name || existingContact.attributes.last_name,
-              // No phone number this time
-              tags: contactWithoutPhone.tags ? contactWithoutPhone.tags.map((tag) => ({ name: tag })) : undefined,
-              custom_attributes: contactWithoutPhone.custom_fields || {},
-            },
-          }),
-        })
-
-        const retryResponseText = await retryResponse.text()
-        console.log(`Retry ClickFunnels API update response status: ${retryResponse.status}`)
-
-        if (!retryResponse.ok) {
-          console.error("Retry ClickFunnels API update error:", retryResponseText)
-          return { success: false, error: `Retry ClickFunnels API update error: ${retryResponse.status}` }
-        }
-
-        const updateData = JSON.parse(retryResponseText)
-        return { success: true, data: updateData, contactId }
-      } catch (retryError) {
-        console.error("Error in update retry attempt:", retryError)
-        return { success: false, error: String(retryError) }
-      }
-    }
-
     return { success: false, error: String(error) }
   }
 }

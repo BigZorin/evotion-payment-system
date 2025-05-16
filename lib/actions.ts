@@ -360,18 +360,11 @@ export async function handleSuccessfulPayment(sessionId: string) {
           throw new Error("Email is required for updating a contact")
         }
 
-        // Add a check for empty phone number
-        let phoneValue = phone as string
-        if (phoneValue && phoneValue.trim() === "") {
-          console.log("Removing empty phone number to prevent API errors")
-          phoneValue = ""
-        }
-
         const updateResult = await updateClickFunnelsContact({
           email: customerEmail,
           first_name: firstName as string,
           last_name: lastName as string,
-          phone: phoneValue,
+          // Explicitly omit phone to prevent the "Phone number has already been taken" error
           tags: [metadata?.membershipLevel || "basic", "stripe-customer", "paid-customer"],
           custom_fields: {
             product_id: productId || "",
@@ -401,7 +394,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
             email: customerEmail as string,
             first_name: firstName as string,
             last_name: lastName as string,
-            phone: phoneValue,
+            // Explicitly omit phone to prevent the "Phone number has already been taken" error
             tags: [metadata?.membershipLevel || "basic", "stripe-customer", "paid-customer"],
             custom_fields: {
               product_id: productId || "",

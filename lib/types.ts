@@ -24,15 +24,15 @@ export interface ClickFunnelsContact {
   email: string
   first_name?: string
   last_name?: string
-  phone?: string
-  custom_fields?: Record<string, string>
-  tags?: string[]
+  phone?: string // We'll keep this in the type but not use it in API calls
   time_zone?: string
   fb_url?: string
   twitter_url?: string
   instagram_url?: string
   linkedin_url?: string
   website_url?: string
+  custom_fields?: Record<string, string>
+  tags?: string[]
 }
 
 export interface ClickFunnelsEnrollment {
