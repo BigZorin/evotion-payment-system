@@ -283,9 +283,10 @@ export async function handleSuccessfulPayment(sessionId: string) {
     }
 
     // Extraheer gegevens uit de sessie
-    const { customer_email: customerEmail, metadata, customer } = session
+    const { customer_email: sessionEmail, metadata, customer } = session
 
     const {
+      email: metadataEmail,
       first_name: firstName,
       last_name: lastName,
       name: customerName,
@@ -298,8 +299,12 @@ export async function handleSuccessfulPayment(sessionId: string) {
       stripeCustomerId,
     } = metadata || {}
 
+    // Gebruik email uit metadata of uit session, zorg ervoor dat we altijd een email hebben
+    const customerEmail = metadataEmail || sessionEmail || ""
+
     console.log("Session metadata:", metadata)
     console.log("Course ID from metadata:", courseId)
+    console.log("Customer email:", customerEmail)
 
     // Basis response
     let response = {
@@ -333,6 +338,16 @@ export async function handleSuccessfulPayment(sessionId: string) {
       }
     }
 
+    // Controleer of we een geldig e-mailadres hebben
+    if (!customerEmail) {
+      console.error("Geen geldig e-mailadres gevonden in de sessie")
+      return {
+        ...response,
+        success: false,
+        error: "Geen geldig e-mailadres gevonden. Neem contact op met de klantenservice.",
+      }
+    }
+
     // Probeer het Evotion account aan te maken/bij te werken en de gebruiker in te schrijven voor de cursus
     try {
       // Get payment amount from session
@@ -349,7 +364,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
       try {
         console.log(`Bijwerken van ClickFunnels contact voor email: ${customerEmail}`)
         const updateResult = await updateClickFunnelsContact({
-          email: customerEmail as string,
+          email: customerEmail,
           first_name: firstName as string,
           last_name: lastName as string,
           phone: phone as string,
@@ -379,7 +394,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
           // Als bijwerken mislukt, maak een nieuw contact aan
           console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken...`)
           const createResult = await createClickFunnelsContact({
-            email: customerEmail as string,
+            email: customerEmail,
             first_name: firstName as string,
             last_name: lastName as string,
             phone: phone as string,

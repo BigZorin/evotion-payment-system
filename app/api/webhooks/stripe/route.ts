@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         if (session.payment_status === "paid") {
           // Extract customer data from session metadata
           const {
-            email,
+            email: metadataEmail,
             first_name: firstName,
             last_name: lastName,
             name,
@@ -72,7 +72,10 @@ export async function POST(req: NextRequest) {
             stripeCustomerId,
           } = session.metadata || {}
 
-          console.log(`Customer data: email=${email}, name=${name}, phone=${phone}, birthDate=${birthDate}`)
+          // Gebruik email uit metadata of uit session, zorg ervoor dat we altijd een email hebben
+          const customerEmail = metadataEmail || session.customer_email || ""
+
+          console.log(`Customer data: email=${customerEmail}, name=${name}, phone=${phone}, birthDate=${birthDate}`)
           console.log(
             `Product data: id=${productId}, name=${productName}, level=${membershipLevel}, courseId=${courseId}, kahunasPackage=${kahunasPackage}`,
           )
@@ -135,7 +138,7 @@ export async function POST(req: NextRequest) {
                   if (finalizedInvoice.status === "paid") {
                     // Verstuur de factuur per e-mail
                     await stripe.invoices.sendInvoice(finalizedInvoice.id)
-                    console.log(`Factuur verstuurd naar ${email}`)
+                    console.log(`Factuur verstuurd naar ${customerEmail}`)
                   }
                 } catch (invoiceError) {
                   console.error("Fout bij het aanmaken van de factuur:", invoiceError)
@@ -148,7 +151,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (email) {
+          if (customerEmail) {
             try {
               // Get payment amount from session
               const amountTotal = session.amount_total
@@ -166,7 +169,7 @@ export async function POST(req: NextRequest) {
 
               try {
                 const updateResult = await updateClickFunnelsContact({
-                  email,
+                  email: customerEmail,
                   first_name: firstName || "",
                   last_name: lastName || "",
                   phone: phone || "",
@@ -193,7 +196,7 @@ export async function POST(req: NextRequest) {
                   // Als bijwerken mislukt, maak een nieuw contact aan
                   console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken via webhook...`)
                   const createResult = await createClickFunnelsContact({
-                    email,
+                    email: customerEmail,
                     first_name: firstName || "",
                     last_name: lastName || "",
                     phone: phone || "",
@@ -270,7 +273,7 @@ export async function POST(req: NextRequest) {
                   // Update het ClickFunnels contact met de factuurgegevens
                   if (contactId) {
                     await updateClickFunnelsContact({
-                      email,
+                      email: customerEmail,
                       custom_fields: customFields,
                     })
                   }
