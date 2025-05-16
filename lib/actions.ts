@@ -177,9 +177,9 @@ export async function createCheckoutSession({
       customerData.isCompany = "true"
     }
 
-    // Definieer alle betalingsmethoden die we willen ondersteunen
+    // Definieer alleen de betaalmethoden die we willen ondersteunen: iDEAL en card
     // iDEAL staat vooraan zodat het als eerste wordt getoond
-    const paymentMethodTypes = ["ideal", "card", "bancontact", "sofort", "giropay", "eps", "p24", "sepa_debit"]
+    const paymentMethodTypes = ["ideal", "card"]
 
     console.log("Creating Stripe checkout session...")
 
@@ -205,22 +205,15 @@ export async function createCheckoutSession({
           quantity: 1,
         },
       ],
-      payment_method_options: {
-        // Configuratie voor iDEAL
-        ideal: {
-          setup_future_usage: "off", // Geen opslag van betalingsgegevens voor toekomstig gebruik
-        },
-        // Configuratie voor creditcards
-        card: {
-          setup_future_usage: "off", // Geen opslag van kaartgegevens voor toekomstig gebruik
-        },
-      },
       // Schakel automatische belastingberekening in
       automatic_tax: {
         enabled: true,
       },
-      // Schakel wallet betalingen in (Apple Pay, Google Pay)
-      payment_method_collection: "always",
+      // Voeg customer_update toe om het adres op te slaan bij de klant
+      customer_update: {
+        address: "auto",
+        name: "auto",
+      },
       mode: "payment",
       customer_email: customerId ? undefined : customerEmail, // Alleen gebruiken als we geen klant ID hebben
       success_url: `${process.env.NEXT_PUBLIC_BASE_URL || "https://betalen.evotion-coaching.nl"}/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -261,6 +254,8 @@ export async function createCheckoutSession({
       phone_number_collection: {
         enabled: false,
       },
+      // Adres verzamelen voor belastingberekening
+      billing_address_collection: "required",
     })
 
     console.log(`Checkout session created: ${session.id}`)

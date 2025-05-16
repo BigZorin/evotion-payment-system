@@ -286,18 +286,6 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
               <span className="text-sm font-medium text-[#1e1839]">Creditcard</span>
             </div>
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
-              <span className="text-sm font-medium text-[#1e1839]">Google Pay</span>
-            </div>
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
-              <span className="text-sm font-medium text-[#1e1839]">Apple Pay</span>
-            </div>
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
-              <span className="text-sm font-medium text-[#1e1839]">Bancontact</span>
-            </div>
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
-              <span className="text-sm font-medium text-[#1e1839]">Sofort</span>
-            </div>
           </div>
         </div>
       </div>
