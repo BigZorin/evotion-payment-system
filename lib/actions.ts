@@ -1,25 +1,44 @@
 "use server"
 import Stripe from "stripe"
 import { getProductById } from "./products"
-import { createClickFunnelsContact, updateClickFunnelsContact, createCourseEnrollment } from "./clickfunnels"
+import {
+  createClickFunnelsContact,
+  updateClickFunnelsContact,
+  createCourseEnrollment,
+  getContactEnrollments,
+} from "./clickfunnels"
 
 // Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2023-10-16",
 })
 
+interface CompanyDetails {
+  name: string
+  vatNumber?: string
+  address?: string
+  postalCode?: string
+  city?: string
+}
+
 interface CreateCheckoutSessionParams {
   productId: string
   customerEmail: string
-  customerName?: string
+  customerFirstName: string
+  customerLastName: string
   customerPhone?: string
+  customerBirthDate?: string
+  companyDetails?: CompanyDetails
 }
 
 export async function createCheckoutSession({
   productId,
   customerEmail,
-  customerName,
+  customerFirstName,
+  customerLastName,
   customerPhone,
+  customerBirthDate,
+  companyDetails,
 }: CreateCheckoutSessionParams) {
   const product = getProductById(productId)
 
@@ -27,15 +46,21 @@ export async function createCheckoutSession({
     throw new Error("Product niet gevonden")
   }
 
+  const customerName = `${customerFirstName} ${customerLastName}`.trim()
+
   // Prepare customer data for ClickFunnels
   const customerData = {
     email: customerEmail,
-    name: customerName,
+    firstName: customerFirstName,
+    lastName: customerLastName,
     phone: customerPhone,
+    birthDate: customerBirthDate,
     productId: product.id,
     productName: product.name,
     membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
-    courseId: product.metadata?.clickfunnels_course_id || "", // Voeg course ID toe aan metadata
+    courseId: product.metadata?.clickfunnels_course_id || "",
+    // Voeg hier eventueel een veld toe voor het Kahunas package
+    kahunasPackage: product.metadata?.kahunas_package || product.id,
   }
 
   // Zoek bestaande klant of maak een nieuwe aan
@@ -53,24 +78,39 @@ export async function createCheckoutSession({
       customerId = customers.data[0].id
       console.log(`Bestaande Stripe klant gevonden: ${customerId}`)
 
-      // Optioneel: Update klantgegevens als ze zijn gewijzigd
-      if (customerName || customerPhone) {
-        await stripe.customers.update(customerId, {
-          name: customerName || undefined,
-          phone: customerPhone || undefined,
-        })
-        console.log(`Klantgegevens bijgewerkt voor: ${customerId}`)
-      }
+      // Update klantgegevens
+      await stripe.customers.update(customerId, {
+        name: customerName,
+        phone: customerPhone || undefined,
+        metadata: {
+          first_name: customerFirstName,
+          last_name: customerLastName,
+          birth_date: customerBirthDate || "",
+          source: "website_payment",
+          productId: product.id,
+          productName: product.name,
+          membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
+          courseId: product.metadata?.clickfunnels_course_id || "",
+          kahunasPackage: product.metadata?.kahunas_package || product.id,
+        },
+      })
+      console.log(`Klantgegevens bijgewerkt voor: ${customerId}`)
     } else {
       // Maak een nieuwe klant aan
       const newCustomer = await stripe.customers.create({
         email: customerEmail,
-        name: customerName || undefined,
+        name: customerName,
         phone: customerPhone || undefined,
         metadata: {
+          first_name: customerFirstName,
+          last_name: customerLastName,
+          birth_date: customerBirthDate || "",
           source: "website_payment",
           productId: product.id,
+          productName: product.name,
           membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
+          courseId: product.metadata?.clickfunnels_course_id || "",
+          kahunasPackage: product.metadata?.kahunas_package || product.id,
         },
       })
       customerId = newCustomer.id
@@ -81,9 +121,47 @@ export async function createCheckoutSession({
     // We gaan door met de checkout zelfs als het aanmaken van de klant mislukt
   }
 
+  // Als er bedrijfsgegevens zijn, voeg deze toe aan de klant en metadata
+  if (companyDetails) {
+    // Voeg bedrijfsgegevens toe aan de klant
+    if (customerId) {
+      await stripe.customers.update(customerId, {
+        name: companyDetails.name, // Gebruik bedrijfsnaam als klantnaam
+        metadata: {
+          first_name: customerFirstName,
+          last_name: customerLastName,
+          birth_date: customerBirthDate || "",
+          company_name: companyDetails.name,
+          vat_number: companyDetails.vatNumber || "",
+          address: companyDetails.address || "",
+          postal_code: companyDetails.postalCode || "",
+          city: companyDetails.city || "",
+          is_company: "true",
+          productId: product.id,
+          productName: product.name,
+          membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
+          courseId: product.metadata?.clickfunnels_course_id || "",
+          kahunasPackage: product.metadata?.kahunas_package || product.id,
+        },
+      })
+    }
+
+    // Voeg bedrijfsgegevens toe aan de customerData
+    customerData.companyName = companyDetails.name
+    customerData.vatNumber = companyDetails.vatNumber || ""
+    customerData.address = companyDetails.address || ""
+    customerData.postalCode = companyDetails.postalCode || ""
+    customerData.city = companyDetails.city || ""
+    customerData.isCompany = "true"
+  }
+
+  // Definieer alle betalingsmethoden die we willen ondersteunen
+  // iDEAL staat vooraan zodat het als eerste wordt getoond
+  const paymentMethodTypes = ["ideal", "card", "bancontact", "sofort", "giropay", "eps", "p24", "sepa_debit"]
+
   // Create Stripe checkout session
   const session = await stripe.checkout.sessions.create({
-    payment_method_types: ["card", "ideal"],
+    payment_method_types: paymentMethodTypes,
     customer: customerId, // Gebruik de klant ID als we die hebben
     line_items: [
       {
@@ -98,17 +176,67 @@ export async function createCheckoutSession({
             },
           },
           unit_amount: product.price,
+          tax_behavior: "inclusive", // BTW is inbegrepen in de prijs
         },
         quantity: 1,
       },
     ],
+    payment_method_options: {
+      // Configuratie voor iDEAL
+      ideal: {
+        setup_future_usage: "off", // Geen opslag van betalingsgegevens voor toekomstig gebruik
+      },
+      // Configuratie voor creditcards
+      card: {
+        setup_future_usage: "off", // Geen opslag van kaartgegevens voor toekomstig gebruik
+        statement_descriptor_suffix: "Evotion", // Tekst die op het bankafschrift verschijnt
+      },
+    },
+    // Schakel automatische belastingberekening in
+    automatic_tax: {
+      enabled: true,
+    },
+    // Schakel wallet betalingen in (Apple Pay, Google Pay)
+    payment_method_collection: "always",
     mode: "payment",
     customer_email: customerId ? undefined : customerEmail, // Alleen gebruiken als we geen klant ID hebben
-    success_url: `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/checkout/${productId}`,
+    success_url: `${process.env.NEXT_PUBLIC_BASE_URL || "https://betalen.evotion-coaching.nl"}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || "https://betalen.evotion-coaching.nl"}/checkout/${productId}`,
     metadata: {
-      ...customerData,
+      email: customerEmail,
+      first_name: customerFirstName,
+      last_name: customerLastName,
+      name: customerName,
+      phone: customerPhone || "",
+      birth_date: customerBirthDate || "",
+      productId: product.id,
+      productName: product.name,
+      membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
+      courseId: product.metadata?.clickfunnels_course_id || "",
+      kahunasPackage: product.metadata?.kahunas_package || product.id,
       stripeCustomerId: customerId, // Bewaar de klant ID in de metadata
+    },
+    // Factuurgegevens inschakelen
+    invoice_creation: {
+      enabled: true,
+    },
+    // Optioneel: Voeg bedrijfsgegevens toe aan de factuur
+    payment_intent_data: {
+      metadata: {
+        product_name: product.name,
+        product_id: product.id,
+        customer_email: customerEmail,
+        customer_name: customerName,
+        kahunas_package: product.metadata?.kahunas_package || product.id,
+      },
+    },
+    // Locale instellen op Nederlands
+    locale: "nl",
+    // Verzendadres uitschakelen (niet nodig voor digitale producten)
+    shipping_address_collection: undefined,
+    // Telefoon uitschakelen (we hebben het al verzameld)
+    phone_number_collection: {
+      enabled: false,
     },
   })
 
@@ -116,66 +244,56 @@ export async function createCheckoutSession({
 }
 
 export async function handleSuccessfulPayment(sessionId: string) {
-  console.log(`Processing successful payment for session: ${sessionId}`)
-
   try {
-    // Retrieve the checkout session to get customer details
-    const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ["payment_intent", "line_items", "customer"],
-    })
+    // Haal de Stripe Checkout Session op
+    const session = await stripe.checkout.sessions.retrieve(sessionId)
 
-    console.log(`Session payment status: ${session.payment_status}`)
+    if (!session) {
+      throw new Error("Sessie niet gevonden")
+    }
 
+    // Controleer de betalingsstatus
     if (session.payment_status !== "paid") {
-      console.log(`Payment not completed yet, status: ${session.payment_status}`)
-      return {
-        success: false,
-        error: "Betaling is nog niet voltooid",
-      }
+      return { success: false, error: "Betaling niet voltooid" }
     }
 
-    // Haal klantgegevens op, eerst uit metadata, dan uit de klant object
-    const stripeCustomer = session.customer as Stripe.Customer
+    // Extraheer gegevens uit de sessie
+    const { customer_email: customerEmail, metadata, customer } = session
 
-    // Extract customer data from session metadata
-    const { email, name, phone, productId, productName, membershipLevel, courseId } = session.metadata || {}
+    const {
+      first_name: firstName,
+      last_name: lastName,
+      name: customerName,
+      phone,
+      birth_date: birthDate,
+      productId,
+      productName,
+      courseId,
+      kahunasPackage,
+      stripeCustomerId,
+    } = metadata || {}
 
-    // Gebruik klantgegevens uit Stripe als ze beschikbaar zijn
-    const customerEmail = email || stripeCustomer?.email || session.customer_details?.email
-    const customerName = name || stripeCustomer?.name || session.customer_details?.name
-    const customerPhone = phone || stripeCustomer?.phone || session.customer_details?.phone
-
-    console.log(`Customer data from metadata: email=${email}, name=${name}, phone=${phone}`)
-    console.log(`Stripe customer data: email=${stripeCustomer?.email}, name=${stripeCustomer?.name}`)
-    console.log(
-      `Product data from metadata: id=${productId}, name=${productName}, level=${membershipLevel}, courseId=${courseId}`,
-    )
-
-    // Fallback to session data if metadata is incomplete
-    if (!customerEmail) {
-      console.error(`Missing email in session data`)
-      return {
-        success: false,
-        error: "Klantgegevens ontbreken",
-      }
+    // Basis response
+    let response = {
+      success: true,
+      partialSuccess: false,
+      customerEmail: customerEmail as string,
+      customerName: customerName as string,
+      firstName: firstName as string,
+      lastName: lastName as string,
+      phone: phone as string,
+      birthDate: birthDate as string,
+      productName: productName as string,
+      productId: productId as string,
+      kahunasPackage: kahunasPackage as string,
+      stripeCustomerId: stripeCustomerId || (customer as string),
+      hasEnrollment: false,
+      courseId: courseId as string,
+      error: null as string | null,
     }
 
-    console.log(`Final customer data: email=${customerEmail}, name=${customerName}, phone=${customerPhone}`)
-
+    // Probeer het Evotion account aan te maken/bij te werken en de gebruiker in te schrijven voor de cursus
     try {
-      // Create contact in ClickFunnels
-      console.log(`Creating Evotion account for ${customerEmail}...`)
-
-      // Split name into first and last name
-      let firstName = customerName
-      let lastName = ""
-
-      if (customerName && customerName.includes(" ")) {
-        const nameParts = customerName.split(" ")
-        firstName = nameParts[0]
-        lastName = nameParts.slice(1).join(" ")
-      }
-
       // Get payment amount from session
       const amountTotal = session.amount_total
       const currency = session.currency
@@ -183,31 +301,29 @@ export async function handleSuccessfulPayment(sessionId: string) {
         ? new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(amountTotal / 100)
         : "onbekend"
 
-      // Get payment date
-      const paymentDate = new Date().toISOString()
-
       // Probeer eerst een bestaand contact bij te werken
       let contactId: number | undefined
       let enrollmentResult: any = { success: false }
-      let hasEnrollment = false
 
       try {
         const updateResult = await updateClickFunnelsContact({
-          email: customerEmail,
-          first_name: firstName,
-          last_name: lastName,
-          phone: customerPhone,
-          tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
+          email: customerEmail as string,
+          first_name: firstName as string,
+          last_name: lastName as string,
+          phone: phone as string,
+          tags: [metadata?.membershipLevel || "basic", "stripe-customer", "paid-customer"],
           custom_fields: {
             product_id: productId || "",
             product_name: productName || "",
-            membership_level: membershipLevel || "basic",
+            membership_level: metadata?.membershipLevel || "basic",
             payment_amount: formattedAmount,
-            payment_date: paymentDate,
+            payment_date: new Date().toISOString(),
             payment_method: "Stripe",
             stripe_session_id: sessionId,
-            stripe_customer_id: stripeCustomer?.id || "",
-            source: "website_payment",
+            stripe_customer_id: stripeCustomerId || (customer as string) || "",
+            birth_date: birthDate || "",
+            kahunas_package: kahunasPackage || productId || "",
+            source: "checkout_payment",
           },
         })
 
@@ -218,21 +334,23 @@ export async function handleSuccessfulPayment(sessionId: string) {
           // Als bijwerken mislukt, maak een nieuw contact aan
           console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken...`)
           const createResult = await createClickFunnelsContact({
-            email: customerEmail,
-            first_name: firstName,
-            last_name: lastName,
-            phone: customerPhone,
-            tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
+            email: customerEmail as string,
+            first_name: firstName as string,
+            last_name: lastName as string,
+            phone: phone as string,
+            tags: [metadata?.membershipLevel || "basic", "stripe-customer", "paid-customer"],
             custom_fields: {
               product_id: productId || "",
               product_name: productName || "",
-              membership_level: membershipLevel || "basic",
+              membership_level: metadata?.membershipLevel || "basic",
               payment_amount: formattedAmount,
-              payment_date: paymentDate,
+              payment_date: new Date().toISOString(),
               payment_method: "Stripe",
               stripe_session_id: sessionId,
-              stripe_customer_id: stripeCustomer?.id || "",
-              source: "website_payment",
+              stripe_customer_id: stripeCustomerId || (customer as string) || "",
+              birth_date: birthDate || "",
+              kahunas_package: kahunasPackage || productId || "",
+              source: "checkout_payment",
             },
           })
           console.log(`Evotion account aangemaakt:`, createResult)
@@ -242,52 +360,48 @@ export async function handleSuccessfulPayment(sessionId: string) {
         // Als er een course ID is en een contact ID, schrijf de klant in voor de cursus
         if (courseId && contactId) {
           console.log(`Enrolling contact ${contactId} in course ${courseId}...`)
-          enrollmentResult = await createCourseEnrollment({
-            contact_id: contactId,
-            course_id: Number.parseInt(courseId),
-            origination_source_type: "stripe_payment",
-            origination_source_id: 1,
-          })
 
-          if (enrollmentResult.success) {
-            console.log(`Successfully enrolled contact in course:`, enrollmentResult.data)
-            hasEnrollment = true
+          // Check if the contact is already enrolled in the course
+          const existingEnrollments = await getContactEnrollments(contactId, Number.parseInt(courseId))
+
+          if (existingEnrollments.success && existingEnrollments.data.courses_enrollments.length > 0) {
+            console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping enrollment.`)
+            response = { ...response, hasEnrollment: true }
           } else {
-            console.error(`Failed to enroll contact in course:`, enrollmentResult.error)
+            enrollmentResult = await createCourseEnrollment({
+              contact_id: contactId,
+              course_id: Number.parseInt(courseId),
+              origination_source_type: "stripe_checkout",
+              origination_source_id: 1,
+            })
+
+            if (enrollmentResult.success) {
+              console.log(`Successfully enrolled contact in course:`, enrollmentResult.data)
+              response = { ...response, hasEnrollment: true }
+            } else {
+              console.error(`Failed to enroll contact in course:`, enrollmentResult.error)
+              response = { ...response, hasEnrollment: false }
+            }
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error updating/creating Evotion account or enrollment:", error)
-        throw error
+        response = {
+          ...response,
+          success: true,
+          partialSuccess: true,
+          error:
+            "Er is een probleem opgetreden bij het aanmaken van je account. Neem contact op met de klantenservice.",
+        }
       }
-
-      return {
-        success: true,
-        customerEmail,
-        customerName,
-        productName: productName || "dienst",
-        stripeCustomerId: stripeCustomer?.id,
-        hasEnrollment,
-        courseId: courseId || undefined,
-      }
-    } catch (error) {
-      console.error("Error creating Evotion account:", error)
-
-      // Return partial success to show a friendly message to the customer
-      // even though the ClickFunnels account creation failed
-      return {
-        success: false,
-        partialSuccess: true,
-        customerEmail,
-        error:
-          "Je betaling is geslaagd, maar er is een probleem opgetreden bij het aanmaken van je account. Ons team zal contact met je opnemen om dit op te lossen.",
-      }
+    } catch (error: any) {
+      console.error("Error processing successful payment:", error)
+      response = { ...response, success: false, error: "Er is een fout opgetreden bij het verwerken van je betaling." }
     }
-  } catch (error) {
-    console.error("Error handling successful payment:", error)
-    return {
-      success: false,
-      error: "Er is een fout opgetreden bij het verwerken van je betaling. Neem contact op met onze klantenservice.",
-    }
+
+    return response
+  } catch (error: any) {
+    console.error("Error in handleSuccessfulPayment:", error)
+    return { success: false, error: "Er is een fout opgetreden bij het verwerken van je betaling." }
   }
 }

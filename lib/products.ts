@@ -9,6 +9,7 @@ export const products: Product[] = [
     features: ["3 coaching sessies", "Persoonlijk actieplan", "Email ondersteuning", "Toegang tot online materialen"],
     metadata: {
       clickfunnels_membership_level: "basic",
+      kahunas_package: "basic-coaching", // Specifiek Kahunas package ID
     },
   },
   {
@@ -25,6 +26,7 @@ export const products: Product[] = [
     ],
     metadata: {
       clickfunnels_membership_level: "premium",
+      kahunas_package: "premium-coaching", // Specifiek Kahunas package ID
     },
   },
   {
@@ -42,13 +44,14 @@ export const products: Product[] = [
     ],
     metadata: {
       clickfunnels_membership_level: "vip",
+      kahunas_package: "vip-coaching", // Specifiek Kahunas package ID
     },
   },
   {
     id: "12-weken-vetverlies",
     name: "12-Weken Vetverlies Programma",
     description: "Compleet programma voor duurzaam vetverlies",
-    price: 50, // €0.50 voor testen (normaal €497.00 = 49700)
+    price: 49, // €0.49 (voor testen)
     features: [
       "Gepersonaliseerd voedingsplan",
       "Wekelijkse trainingsschema's",
@@ -59,7 +62,8 @@ export const products: Product[] = [
     ],
     metadata: {
       clickfunnels_membership_level: "vetverlies",
-      clickfunnels_course_id: "eWbLVk", // Bijgewerkt met de echte course ID
+      clickfunnels_course_id: "eWbLVk", // Course ID voor het 12-weken schema
+      kahunas_package: "12-week-fat-loss", // Specifiek Kahunas package ID
     },
   },
 ]

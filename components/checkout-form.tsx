@@ -8,6 +8,7 @@ import type { Product } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import { createCheckoutSession } from "@/lib/actions"
 import { loadStripe } from "@stripe/stripe-js"
 
@@ -21,11 +22,18 @@ interface CheckoutFormProps {
 export function CheckoutForm({ product }: CheckoutFormProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [isCompany, setIsCompany] = useState(false)
   const [formData, setFormData] = useState({
     email: "",
     firstName: "",
     lastName: "",
     phone: "",
+    birthDate: "",
+    companyName: "",
+    vatNumber: "",
+    address: "",
+    postalCode: "",
+    city: "",
   })
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,8 +49,19 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
       const { sessionId } = await createCheckoutSession({
         productId: product.id,
         customerEmail: formData.email,
-        customerName: `${formData.firstName} ${formData.lastName}`.trim(),
+        customerFirstName: formData.firstName,
+        customerLastName: formData.lastName,
         customerPhone: formData.phone,
+        customerBirthDate: formData.birthDate,
+        companyDetails: isCompany
+          ? {
+              name: formData.companyName,
+              vatNumber: formData.vatNumber,
+              address: formData.address,
+              postalCode: formData.postalCode,
+              city: formData.city,
+            }
+          : undefined,
       })
 
       // Redirect to Stripe Checkout
@@ -63,7 +82,7 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
       <div className="space-y-4">
         <div>
           <Label htmlFor="email" className="text-[#1e1839]">
-            E-mailadres
+            E-mailadres <span className="text-red-500">*</span>
           </Label>
           <Input
             id="email"
@@ -80,7 +99,7 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label htmlFor="firstName" className="text-[#1e1839]">
-              Voornaam
+              Voornaam <span className="text-red-500">*</span>
             </Label>
             <Input
               id="firstName"
@@ -93,7 +112,7 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
           </div>
           <div>
             <Label htmlFor="lastName" className="text-[#1e1839]">
-              Achternaam
+              Achternaam <span className="text-red-500">*</span>
             </Label>
             <Input
               id="lastName"
@@ -116,9 +135,135 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             type="tel"
             value={formData.phone}
             onChange={handleChange}
-            placeholder="Optioneel"
+            placeholder="Bijv. 0612345678"
             className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
           />
+        </div>
+
+        <div>
+          <Label htmlFor="birthDate" className="text-[#1e1839]">
+            Geboortedatum
+          </Label>
+          <Input
+            id="birthDate"
+            name="birthDate"
+            type="date"
+            value={formData.birthDate}
+            onChange={handleChange}
+            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+          />
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="isCompany"
+            checked={isCompany}
+            onCheckedChange={(checked) => setIsCompany(checked as boolean)}
+          />
+          <Label htmlFor="isCompany" className="text-[#1e1839]">
+            Ik betaal namens een bedrijf (factuur op bedrijfsnaam)
+          </Label>
+        </div>
+
+        {isCompany && (
+          <div className="space-y-4 border-t border-[#1e1839]/10 pt-4 mt-4">
+            <div>
+              <Label htmlFor="companyName" className="text-[#1e1839]">
+                Bedrijfsnaam <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="companyName"
+                name="companyName"
+                required={isCompany}
+                value={formData.companyName}
+                onChange={handleChange}
+                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="vatNumber" className="text-[#1e1839]">
+                BTW-nummer
+              </Label>
+              <Input
+                id="vatNumber"
+                name="vatNumber"
+                value={formData.vatNumber}
+                onChange={handleChange}
+                placeholder="NL123456789B01"
+                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="address" className="text-[#1e1839]">
+                Adres <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="address"
+                name="address"
+                required={isCompany}
+                value={formData.address}
+                onChange={handleChange}
+                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="postalCode" className="text-[#1e1839]">
+                  Postcode <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="postalCode"
+                  name="postalCode"
+                  required={isCompany}
+                  value={formData.postalCode}
+                  onChange={handleChange}
+                  className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                />
+              </div>
+              <div>
+                <Label htmlFor="city" className="text-[#1e1839]">
+                  Plaats <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="city"
+                  name="city"
+                  required={isCompany}
+                  value={formData.city}
+                  onChange={handleChange}
+                  className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="pt-4 border-t border-[#1e1839]/10">
+        <div className="mb-4">
+          <p className="text-[#1e1839] font-medium mb-2">Beschikbare betalingsmethoden:</p>
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-[#1e1839]">iDEAL</span>
+            </div>
+            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-[#1e1839]">Creditcard</span>
+            </div>
+            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-[#1e1839]">Google Pay</span>
+            </div>
+            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-[#1e1839]">Apple Pay</span>
+            </div>
+            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-[#1e1839]">Bancontact</span>
+            </div>
+            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-[#1e1839]">Sofort</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -129,6 +274,10 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
       >
         {isLoading ? "Bezig met laden..." : "Doorgaan naar betaling"}
       </Button>
+
+      <div className="text-center text-[#1e1839]/60 text-sm">
+        <p>Veilig betalen via Stripe. Je gegevens worden versleuteld verzonden.</p>
+      </div>
     </form>
   )
 }

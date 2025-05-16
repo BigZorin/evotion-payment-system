@@ -34,14 +34,47 @@ export async function POST(req: NextRequest) {
         console.log(`Payment status: ${session.payment_status}`)
         console.log(`Metadata:`, session.metadata)
 
+        // Log de gebruikte betalingsmethode
+        if (session.payment_method_types && session.payment_method_types.length > 0) {
+          console.log(`Payment method types: ${session.payment_method_types.join(", ")}`)
+        }
+
+        // Als er een payment_intent is, haal deze op om de exacte betalingsmethode te zien
+        let paymentMethodType = "unknown"
+        if (session.payment_intent) {
+          try {
+            const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent as string)
+            if (paymentIntent.payment_method) {
+              const paymentMethod = await stripe.paymentMethods.retrieve(paymentIntent.payment_method as string)
+              paymentMethodType = paymentMethod.type
+              console.log(`Payment method used: ${paymentMethodType}`)
+            }
+          } catch (error) {
+            console.error("Error retrieving payment method:", error)
+          }
+        }
+
         // Only process if payment is successful
         if (session.payment_status === "paid") {
           // Extract customer data from session metadata
-          const { email, name, phone, productId, productName, membershipLevel, courseId, stripeCustomerId } =
-            session.metadata || {}
-          console.log(`Customer data: email=${email}, name=${name}, phone=${phone}`)
+          const {
+            email,
+            first_name: firstName,
+            last_name: lastName,
+            name,
+            phone,
+            birth_date: birthDate,
+            productId,
+            productName,
+            membershipLevel,
+            courseId,
+            kahunasPackage,
+            stripeCustomerId,
+          } = session.metadata || {}
+
+          console.log(`Customer data: email=${email}, name=${name}, phone=${phone}, birthDate=${birthDate}`)
           console.log(
-            `Product data: id=${productId}, name=${productName}, level=${membershipLevel}, courseId=${courseId}`,
+            `Product data: id=${productId}, name=${productName}, level=${membershipLevel}, courseId=${courseId}, kahunasPackage=${kahunasPackage}`,
           )
           console.log(`Stripe customer ID: ${stripeCustomerId || session.customer}`)
 
@@ -58,23 +91,65 @@ export async function POST(req: NextRequest) {
                 })
                 console.log(`Payment intent ${session.payment_intent} gekoppeld aan klant ${customerId}`)
               }
+
+              // Controleer of er al een factuur is aangemaakt, zo niet, maak er een
+              if (session.invoice === null) {
+                console.log("Geen factuur gevonden, handmatig een factuur aanmaken...")
+
+                try {
+                  // Maak een factuuritem aan
+                  const invoiceItem = await stripe.invoiceItems.create({
+                    customer: customerId as string,
+                    amount: session.amount_total || 0,
+                    currency: session.currency || "eur",
+                    description: `Betaling voor ${productName || "dienst"}`,
+                    metadata: {
+                      session_id: session.id,
+                      product_id: productId || "",
+                      product_name: productName || "",
+                      kahunas_package: kahunasPackage || productId || "",
+                    },
+                  })
+
+                  console.log(`Factuuritem aangemaakt: ${invoiceItem.id}`)
+
+                  // Maak en verstuur de factuur
+                  const invoice = await stripe.invoices.create({
+                    customer: customerId as string,
+                    auto_advance: true, // Automatisch finaliseren en versturen
+                    collection_method: "charge_automatically",
+                    metadata: {
+                      session_id: session.id,
+                      product_id: productId || "",
+                      product_name: productName || "",
+                      kahunas_package: kahunasPackage || productId || "",
+                    },
+                  })
+
+                  console.log(`Factuur aangemaakt: ${invoice.id}`)
+
+                  // Finaliseer en verstuur de factuur
+                  const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
+                  console.log(`Factuur gefinaliseerd: ${finalizedInvoice.id}, status: ${finalizedInvoice.status}`)
+
+                  if (finalizedInvoice.status === "paid") {
+                    // Verstuur de factuur per e-mail
+                    await stripe.invoices.sendInvoice(finalizedInvoice.id)
+                    console.log(`Factuur verstuurd naar ${email}`)
+                  }
+                } catch (invoiceError) {
+                  console.error("Fout bij het aanmaken van de factuur:", invoiceError)
+                }
+              } else {
+                console.log(`Factuur al aangemaakt: ${session.invoice}`)
+              }
             } catch (error) {
-              console.error("Fout bij het koppelen van betaling aan klant:", error)
+              console.error("Fout bij het koppelen van betaling aan klant of aanmaken factuur:", error)
             }
           }
 
           if (email) {
             try {
-              // Split name into first and last name
-              let firstName = name
-              let lastName = ""
-
-              if (name && name.includes(" ")) {
-                const nameParts = name.split(" ")
-                firstName = nameParts[0]
-                lastName = nameParts.slice(1).join(" ")
-              }
-
               // Get payment amount from session
               const amountTotal = session.amount_total
               const currency = session.currency
@@ -92,9 +167,9 @@ export async function POST(req: NextRequest) {
               try {
                 const updateResult = await updateClickFunnelsContact({
                   email,
-                  first_name: firstName,
-                  last_name: lastName,
-                  phone,
+                  first_name: firstName || "",
+                  last_name: lastName || "",
+                  phone: phone || "",
                   tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
                   custom_fields: {
                     product_id: productId || "",
@@ -102,9 +177,11 @@ export async function POST(req: NextRequest) {
                     membership_level: membershipLevel || "basic",
                     payment_amount: formattedAmount,
                     payment_date: paymentDate,
-                    payment_method: "Stripe",
+                    payment_method: paymentMethodType,
                     stripe_session_id: session.id,
                     stripe_customer_id: (customerId as string) || "",
+                    birth_date: birthDate || "",
+                    kahunas_package: kahunasPackage || productId || "",
                     source: "webhook_payment",
                   },
                 })
@@ -117,9 +194,9 @@ export async function POST(req: NextRequest) {
                   console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken via webhook...`)
                   const createResult = await createClickFunnelsContact({
                     email,
-                    first_name: firstName,
-                    last_name: lastName,
-                    phone,
+                    first_name: firstName || "",
+                    last_name: lastName || "",
+                    phone: phone || "",
                     tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
                     custom_fields: {
                       product_id: productId || "",
@@ -127,9 +204,11 @@ export async function POST(req: NextRequest) {
                       membership_level: membershipLevel || "basic",
                       payment_amount: formattedAmount,
                       payment_date: paymentDate,
-                      payment_method: "Stripe",
+                      payment_method: paymentMethodType,
                       stripe_session_id: session.id,
                       stripe_customer_id: (customerId as string) || "",
+                      birth_date: birthDate || "",
+                      kahunas_package: kahunasPackage || productId || "",
                       source: "webhook_payment",
                     },
                   })
@@ -161,6 +240,44 @@ export async function POST(req: NextRequest) {
                   warning: "Webhook processed but Evotion account creation or enrollment failed",
                 })
               }
+
+              // In de webhook handler, voeg factuurgegevens toe aan ClickFunnels
+              if (session.invoice) {
+                try {
+                  // Haal de factuur op
+                  const invoice = await stripe.invoices.retrieve(session.invoice as string)
+
+                  // Voeg factuurgegevens toe aan de custom_fields
+                  const customFields = {
+                    product_id: productId || "",
+                    product_name: productName || "",
+                    membership_level: membershipLevel || "basic",
+                    payment_amount: formattedAmount,
+                    payment_date: paymentDate,
+                    payment_method: paymentMethodType,
+                    stripe_session_id: session.id,
+                    stripe_customer_id: (customerId as string) || "",
+                    birth_date: birthDate || "",
+                    kahunas_package: kahunasPackage || productId || "",
+                    source: "webhook_payment",
+                    invoice_id: invoice.id,
+                    invoice_number: invoice.number || "",
+                    invoice_url: invoice.hosted_invoice_url || "",
+                    invoice_pdf: invoice.invoice_pdf || "",
+                    invoice_date: new Date(invoice.created * 1000).toISOString(),
+                  }
+
+                  // Update het ClickFunnels contact met de factuurgegevens
+                  if (contactId) {
+                    await updateClickFunnelsContact({
+                      email,
+                      custom_fields: customFields,
+                    })
+                  }
+                } catch (invoiceError) {
+                  console.error("Fout bij het ophalen van factuurgegevens:", invoiceError)
+                }
+              }
             } catch (error) {
               // Log de fout maar laat de webhook succesvol voltooien
               console.error(`Error creating Evotion account:`, error)
@@ -188,6 +305,18 @@ export async function POST(req: NextRequest) {
           warning: "Webhook received but processing failed",
         })
       }
+    } else if (event.type === "invoice.created" || event.type === "invoice.finalized") {
+      // Log invoice events
+      const invoice = event.data.object as Stripe.Invoice
+      console.log(`Invoice event: ${event.type}, invoice ID: ${invoice.id}, status: ${invoice.status}`)
+    } else if (event.type === "invoice.payment_succeeded") {
+      // Log successful invoice payment
+      const invoice = event.data.object as Stripe.Invoice
+      console.log(`Invoice payment succeeded: ${invoice.id}, amount: ${invoice.amount_paid}`)
+    } else if (event.type === "invoice.payment_failed") {
+      // Log failed invoice payment
+      const invoice = event.data.object as Stripe.Invoice
+      console.log(`Invoice payment failed: ${invoice.id}, attempt count: ${invoice.attempt_count}`)
     } else {
       console.log(`Unhandled event type: ${event.type}`)
     }

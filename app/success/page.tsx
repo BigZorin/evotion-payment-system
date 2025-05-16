@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
-import { handleSuccessfulPayment } from "@/lib/actions"
+import { handleSuccessfulPayment as handlePayment } from "@/lib/actions"
 import { CheckCircle, AlertTriangle, BookOpen } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -28,7 +28,9 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
     stripeCustomerId,
     hasEnrollment,
     courseId,
-  } = await handleSuccessfulPayment(sessionId)
+    invoiceUrl,
+    invoicePdf,
+  } = await handlePayment(sessionId)
 
   return (
     <div className="min-h-screen bg-white text-[#1e1839]">
@@ -110,6 +112,32 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
                 )}
               </div>
             </div>
+
+            {invoiceUrl && (
+              <div className="mt-4">
+                <p className="text-[#1e1839]/80 mb-2">Je factuur is beschikbaar:</p>
+                <div className="flex space-x-4">
+                  <Link href={invoiceUrl} target="_blank" rel="noopener noreferrer">
+                    <Button
+                      variant="outline"
+                      className="border-[#1e1839]/50 text-[#1e1839] hover:bg-[#1e1839]/10 hover:border-[#1e1839]"
+                    >
+                      Bekijk factuur online
+                    </Button>
+                  </Link>
+                  {invoicePdf && (
+                    <Link href={invoicePdf} target="_blank" rel="noopener noreferrer">
+                      <Button
+                        variant="outline"
+                        className="border-[#1e1839]/50 text-[#1e1839] hover:bg-[#1e1839]/10 hover:border-[#1e1839]"
+                      >
+                        Download PDF factuur
+                      </Button>
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="mt-8">
               <Link href="https://www.evotion-coaching.nl">
@@ -213,4 +241,74 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
       </footer>
     </div>
   )
+}
+
+// In de handleSuccessfulPayment functie, haal factuurgegevens op
+export async function handleSuccessfulPayment(sessionId: string) {
+  const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY)
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId)
+    const customer = await stripe.customers.retrieve(session.customer as string)
+
+    const subscriptionId = session.subscription as string | undefined
+    let hasEnrollment = false
+    let courseId: string | undefined
+
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+      if (subscription.metadata.courseId) {
+        hasEnrollment = true
+        courseId = subscription.metadata.courseId
+      }
+    }
+
+    let invoiceUrl: string | undefined
+    let invoicePdf: string | undefined
+
+    if (session.invoice) {
+      try {
+        const invoice = await stripe.invoices.retrieve(session.invoice as string)
+        invoiceUrl = invoice.hosted_invoice_url || undefined
+        invoicePdf = invoice.invoice_pdf || undefined
+      } catch (error) {
+        console.error("Fout bij het ophalen van factuurgegevens:", error)
+      }
+    }
+
+    return {
+      success: true,
+      customerEmail: customer.email,
+      customerName: customer.name,
+      productName: session.metadata.productName,
+      stripeCustomerId: customer.id,
+      hasEnrollment: hasEnrollment,
+      courseId: courseId,
+      invoiceUrl,
+      invoicePdf,
+    }
+  } catch (error: any) {
+    console.error("Error in handleSuccessfulPayment:", error)
+
+    if (error.message.includes("No such checkout.session")) {
+      return {
+        success: false,
+        error: "De sessie is niet gevonden. Controleer de sessie-ID.",
+      }
+    }
+
+    if (error.message.includes("Customer is required when creating a subscription")) {
+      return {
+        success: false,
+        partialSuccess: true,
+        error:
+          "Er is een probleem met je account. Neem contact met ons op zodat we dit kunnen oplossen. Vermeld de volgende foutmelding: Customer is required when creating a subscription",
+      }
+    }
+
+    return {
+      success: false,
+      error: "Er is een fout opgetreden bij het verwerken van de betaling.",
+    }
+  }
 }

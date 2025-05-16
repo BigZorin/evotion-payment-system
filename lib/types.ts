@@ -7,6 +7,19 @@ export interface Product {
   metadata?: Record<string, string>
 }
 
+export interface CustomerData {
+  email: string
+  firstName: string
+  lastName: string
+  phone?: string
+  birthDate?: string
+  companyDetails?: CompanyDetails
+  productId: string
+  productName: string
+  membershipLevel?: string
+  courseId?: string
+}
+
 export interface ClickFunnelsContact {
   email: string
   first_name?: string
@@ -36,6 +49,14 @@ export interface PaymentDetails {
   customerEmail: string
   customerName?: string
   metadata?: Record<string, string>
+}
+
+export interface CompanyDetails {
+  name: string
+  vatNumber?: string
+  address?: string
+  postalCode?: string
+  city?: string
 }
 
 export interface StripeCheckoutOptions {
