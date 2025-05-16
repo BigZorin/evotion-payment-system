@@ -261,7 +261,6 @@ export async function createCheckoutSession({
       phone_number_collection: {
         enabled: false,
       },
-      statement_descriptor: "EVOTION",
     })
 
     console.log(`Checkout session created: ${session.id}`)
