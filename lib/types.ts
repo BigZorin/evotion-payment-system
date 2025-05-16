@@ -22,6 +22,13 @@ export interface ClickFunnelsContact {
   website_url?: string
 }
 
+export interface ClickFunnelsEnrollment {
+  contact_id: number
+  course_id: number
+  origination_source_type?: string
+  origination_source_id?: number
+}
+
 export interface PaymentDetails {
   productId: string
   amount: number

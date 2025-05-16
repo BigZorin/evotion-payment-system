@@ -59,10 +59,12 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg border border-[#1e1839]/10 shadow-md">
       <div className="space-y-4">
         <div>
-          <Label htmlFor="email">E-mailadres</Label>
+          <Label htmlFor="email" className="text-[#1e1839]">
+            E-mailadres
+          </Label>
           <Input
             id="email"
             name="email"
@@ -71,22 +73,43 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             value={formData.email}
             onChange={handleChange}
             placeholder="jouw@email.nl"
+            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="firstName">Voornaam</Label>
-            <Input id="firstName" name="firstName" required value={formData.firstName} onChange={handleChange} />
+            <Label htmlFor="firstName" className="text-[#1e1839]">
+              Voornaam
+            </Label>
+            <Input
+              id="firstName"
+              name="firstName"
+              required
+              value={formData.firstName}
+              onChange={handleChange}
+              className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+            />
           </div>
           <div>
-            <Label htmlFor="lastName">Achternaam</Label>
-            <Input id="lastName" name="lastName" required value={formData.lastName} onChange={handleChange} />
+            <Label htmlFor="lastName" className="text-[#1e1839]">
+              Achternaam
+            </Label>
+            <Input
+              id="lastName"
+              name="lastName"
+              required
+              value={formData.lastName}
+              onChange={handleChange}
+              className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+            />
           </div>
         </div>
 
         <div>
-          <Label htmlFor="phone">Telefoonnummer</Label>
+          <Label htmlFor="phone" className="text-[#1e1839]">
+            Telefoonnummer
+          </Label>
           <Input
             id="phone"
             name="phone"
@@ -94,11 +117,16 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             value={formData.phone}
             onChange={handleChange}
             placeholder="Optioneel"
+            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
           />
         </div>
       </div>
 
-      <Button type="submit" className="w-full" disabled={isLoading}>
+      <Button
+        type="submit"
+        className="w-full bg-[#1e1839] hover:bg-[#1e1839]/90 text-white transition-colors duration-300"
+        disabled={isLoading}
+      >
         {isLoading ? "Bezig met laden..." : "Doorgaan naar betaling"}
       </Button>
     </form>

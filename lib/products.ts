@@ -5,7 +5,7 @@ export const products: Product[] = [
     id: "coaching-basic",
     name: "Basis Coaching Pakket",
     description: "Persoonlijke coaching voor beginners",
-    price: 50, // €0.50
+    price: 9900, // €99.00
     features: ["3 coaching sessies", "Persoonlijk actieplan", "Email ondersteuning", "Toegang tot online materialen"],
     metadata: {
       clickfunnels_membership_level: "basic",
@@ -42,6 +42,24 @@ export const products: Product[] = [
     ],
     metadata: {
       clickfunnels_membership_level: "vip",
+    },
+  },
+  {
+    id: "12-weken-vetverlies",
+    name: "12-Weken Vetverlies Programma",
+    description: "Compleet programma voor duurzaam vetverlies",
+    price: 50, // €0.50 voor testen (normaal €497.00 = 49700)
+    features: [
+      "Gepersonaliseerd voedingsplan",
+      "Wekelijkse trainingsschema's",
+      "Toegang tot exclusieve video content",
+      "Wekelijkse check-ins",
+      "Ondersteuning via de community",
+      "Levenslange toegang tot materialen",
+    ],
+    metadata: {
+      clickfunnels_membership_level: "vetverlies",
+      clickfunnels_course_id: "eWbLVk", // Bijgewerkt met de echte course ID
     },
   },
 ]

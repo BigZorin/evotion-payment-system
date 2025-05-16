@@ -1,9 +1,10 @@
 "use server"
 
-import type { ClickFunnelsContact } from "./types"
+import type { ClickFunnelsContact, ClickFunnelsEnrollment } from "./types"
 
-const CLICKFUNNELS_SUBDOMAIN = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace"
-const CLICKFUNNELS_WORKSPACE_ID = process.env.CLICKFUNNELS_WORKSPACE_ID || ""
+// Deze waarden moeten worden ingesteld als omgevingsvariabelen
+const CLICKFUNNELS_SUBDOMAIN = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
+const CLICKFUNNELS_WORKSPACE_ID = process.env.CLICKFUNNELS_WORKSPACE_ID || "" // Vervang met je workspace ID
 const API_TOKEN = process.env.CLICKFUNNELS_API_TOKEN
 
 export async function createClickFunnelsContact(contact: ClickFunnelsContact) {
@@ -16,228 +17,227 @@ export async function createClickFunnelsContact(contact: ClickFunnelsContact) {
   }
 
   try {
-    console.log(`Processing contact for ClickFunnels: ${contact.email}`)
-    
-    // Stap 1: Zoek eerst of het contact al bestaat
-    // Gebruik het workspace-specifieke endpoint om contacten te zoeken
-    const searchURL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts?filter[email_address]=${encodeURIComponent(contact.email)}`
-    
-    console.log(`Searching for existing contact: ${searchURL}`)
-    
-    const searchResponse = await fetch(searchURL, {
-      headers: {
-        "Authorization": `Bearer ${API_TOKEN}`,
-        "Accept": "application/json"
-      }
-    })
-    
-    if (!searchResponse.ok) {
-      console.error(`Error searching for contact: ${searchResponse.status}`)
-      const errorText = await searchResponse.text()
-      console.error(`Error details: ${errorText}`)
-      
-      // Als we het contact niet kunnen zoeken, proberen we het gewoon aan te maken
-      // en laten we de API de duplicate error afhandelen
-      return await createNewContact(contact)
-    }
-    
-    const existingContacts = await searchResponse.json()
-    console.log(`Found ${existingContacts.length} existing contacts with email ${contact.email}`)
-    
-    // Als het contact bestaat, update het
-    if (existingContacts.length > 0) {
-      const existingContact = existingContacts[0]
-      console.log(`Updating existing contact with ID: ${existingContact.id}`)
-      
-      // Update het bestaande contact
-      return await updateExistingContact(existingContact.id, contact)
-    }
-    
-    // Als het contact niet bestaat, maak een nieuw contact aan
-    return await createNewContact(contact)
-  } catch (error) {
-    console.error("Error in ClickFunnels contact operation:", error)
-    throw error
-  }
-}
+    console.log(`Making API request to ClickFunnels with data:`, JSON.stringify(contact, null, 2))
 
-// Functie om een nieuw contact aan te maken
-async function createNewContact(contact: ClickFunnelsContact) {
-  try {
-    console.log(`Creating new contact for ${contact.email}`)
-    
+    // Bijgewerkte URL structuur
     const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts`
-    
-    const requestBody = {
-      contact: {
-        email_address: contact.email,
-        first_name: contact.first_name || "",
-        last_name: contact.last_name || "",
-        phone_number: contact.phone || "",
-        custom_attributes: contact.custom_fields || {},
-      }
-    }
-    
-    console.log(`Create request body: ${JSON.stringify(requestBody, null, 2)}`)
-    
+
+    console.log(`Using ClickFunnels API URL: ${API_URL}`)
+
+    // Create the contact in ClickFunnels
     const response = await fetch(API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${API_TOKEN}`,
-        "Accept": "application/json"
+        Authorization: `Bearer ${API_TOKEN}`,
+        Accept: "application/json",
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        contact: {
+          email_address: contact.email,
+          first_name: contact.first_name || "",
+          last_name: contact.last_name || "",
+          phone_number: contact.phone || "",
+          // Voeg tags toe als ze zijn opgegeven
+          tags: contact.tags ? contact.tags.map((tag) => ({ name: tag })) : undefined,
+          // Voeg custom attributes toe
+          custom_attributes: contact.custom_fields || {},
+        },
+      }),
     })
-    
+
     const responseText = await response.text()
-    console.log(`Create response status: ${response.status}`)
-    console.log(`Create response body: ${responseText}`)
-    
+    console.log(`ClickFunnels API response status: ${response.status}`)
+    console.log(`ClickFunnels API response body: ${responseText}`)
+
     if (!response.ok) {
-      // Als we een 422 krijgen (duplicate), proberen we het contact te zoeken en bij te werken
-      if (response.status === 422 && responseText.includes("Duplicate entry")) {
-        console.log("Received duplicate entry error, trying to find and update the contact")
-        
-        // Zoek het contact opnieuw, maar nu met een directe API call
-        const contacts = await findContactByEmail(contact.email)
-        
-        if (contacts.length > 0) {
-          return await updateExistingContact(contacts[0].id, contact)
-        }
-      }
-      
       console.error("ClickFunnels API error:", responseText)
       throw new Error(`ClickFunnels API error: ${response.status}`)
     }
-    
+
     const data = JSON.parse(responseText)
-    
-    // Als we tags willen toevoegen, doen we dat in een aparte stap
-    if (contact.tags && contact.tags.length > 0 && data.id) {
-      await addTagsToContact(data.id, contact.tags)
-    }
-    
     return data
   } catch (error) {
-    console.error("Error creating new contact:", error)
+    console.error("Error creating ClickFunnels contact:", error)
     throw error
   }
 }
 
-// Functie om een bestaand contact bij te werken
-async function updateExistingContact(contactId: number | string, contact: ClickFunnelsContact) {
+export async function updateClickFunnelsContact(contact: ClickFunnelsContact) {
+  if (!API_TOKEN) {
+    throw new Error("ClickFunnels API token is niet geconfigureerd")
+  }
+
+  if (!CLICKFUNNELS_WORKSPACE_ID) {
+    throw new Error("ClickFunnels workspace ID is niet geconfigureerd")
+  }
+
+  if (!contact.email) {
+    throw new Error("Email is verplicht voor het bijwerken van een contact")
+  }
+
   try {
-    console.log(`Updating contact with ID: ${contactId}`)
-    
-    // Gebruik het directe contacts endpoint zoals in de documentatie
-    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/contacts/${contactId}`
-    
-    const requestBody = {
-      contact: {
-        // We laten email_address weg omdat dat niet kan worden gewijzigd
-        first_name: contact.first_name || "",
-        last_name: contact.last_name || "",
-        phone_number: contact.phone || "",
-        custom_attributes: contact.custom_fields || {},
-      }
+    console.log(`Zoeken naar bestaand ClickFunnels contact met email: ${contact.email}`)
+
+    // Zoek eerst het contact op basis van e-mail
+    const SEARCH_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts?filter[email_address]=${encodeURIComponent(
+      contact.email,
+    )}`
+
+    const searchResponse = await fetch(SEARCH_URL, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${API_TOKEN}`,
+        Accept: "application/json",
+      },
+    })
+
+    if (!searchResponse.ok) {
+      console.error(`Fout bij zoeken naar contact: ${searchResponse.status}`)
+      return { success: false, error: `Fout bij zoeken naar contact: ${searchResponse.status}` }
     }
-    
-    console.log(`Update request to ${API_URL} with body: ${JSON.stringify(requestBody, null, 2)}`)
-    
-    const response = await fetch(API_URL, {
-      method: "PUT", // Gebruik PUT zoals in de documentatie
+
+    const searchData = await searchResponse.json()
+    console.log(`Zoekresultaten:`, JSON.stringify(searchData, null, 2))
+
+    // Als er geen contact is gevonden, return false
+    if (!searchData.data || searchData.data.length === 0) {
+      console.log(`Geen bestaand contact gevonden voor email: ${contact.email}`)
+      return { success: false, error: "Contact niet gevonden" }
+    }
+
+    // Gebruik het eerste gevonden contact
+    const existingContact = searchData.data[0]
+    const contactId = existingContact.id
+
+    console.log(`Bestaand contact gevonden met ID: ${contactId}`)
+
+    // Update het contact
+    const UPDATE_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts/${contactId}`
+
+    console.log(`Bijwerken van contact met data:`, JSON.stringify(contact, null, 2))
+
+    const updateResponse = await fetch(UPDATE_URL, {
+      method: "PATCH",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${API_TOKEN}`,
-        "Accept": "application/json"
+        Authorization: `Bearer ${API_TOKEN}`,
+        Accept: "application/json",
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        contact: {
+          first_name: contact.first_name || existingContact.attributes.first_name,
+          last_name: contact.last_name || existingContact.attributes.last_name,
+          phone_number: contact.phone || existingContact.attributes.phone_number,
+          // Voeg tags toe als ze zijn opgegeven
+          tags: contact.tags ? contact.tags.map((tag) => ({ name: tag })) : undefined,
+          // Voeg custom attributes toe
+          custom_attributes: contact.custom_fields || {},
+        },
+      }),
     })
-    
-    const responseText = await response.text()
-    console.log(`Update response status: ${response.status}`)
-    console.log(`Update response body: ${responseText}`)
-    
-    if (!response.ok) {
-      console.error("Error updating contact:", responseText)
-      throw new Error(`Error updating contact: ${response.status}`)
+
+    const updateResponseText = await updateResponse.text()
+    console.log(`ClickFunnels API update response status: ${updateResponse.status}`)
+    console.log(`ClickFunnels API update response body: ${updateResponseText}`)
+
+    if (!updateResponse.ok) {
+      console.error("ClickFunnels API update error:", updateResponseText)
+      return { success: false, error: `ClickFunnels API update error: ${updateResponse.status}` }
     }
-    
-    const data = JSON.parse(responseText)
-    
-    // Voeg tags toe aan het bijgewerkte contact
-    if (contact.tags && contact.tags.length > 0) {
-      await addTagsToContact(contactId, contact.tags)
-    }
-    
-    return data
+
+    const updateData = JSON.parse(updateResponseText)
+    return { success: true, data: updateData, contactId }
   } catch (error) {
-    console.error(`Error updating contact ${contactId}:`, error)
-    throw error
+    console.error("Error updating ClickFunnels contact:", error)
+    return { success: false, error: String(error) }
   }
 }
 
-// Functie om een contact te zoeken op e-mailadres
-async function findContactByEmail(email: string) {
+export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment) {
+  if (!API_TOKEN) {
+    throw new Error("ClickFunnels API token is niet geconfigureerd")
+  }
+
   try {
-    const searchURL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts?filter[email_address]=${encodeURIComponent(email)}`
-    
-    const response = await fetch(searchURL, {
+    console.log(
+      `Creating course enrollment for contact ID: ${enrollment.contact_id} in course ID: ${enrollment.course_id}`,
+    )
+
+    // URL voor het aanmaken van een enrollment
+    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/courses/${enrollment.course_id}/enrollments`
+
+    console.log(`Using ClickFunnels Enrollment API URL: ${API_URL}`)
+
+    // Create the enrollment in ClickFunnels
+    const response = await fetch(API_URL, {
+      method: "POST",
       headers: {
-        "Authorization": `Bearer ${API_TOKEN}`,
-        "Accept": "application/json"
-      }
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${API_TOKEN}`,
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        courses_enrollment: {
+          contact_id: enrollment.contact_id,
+          origination_source_type: enrollment.origination_source_type || "api",
+          origination_source_id: enrollment.origination_source_id || 0,
+        },
+      }),
     })
-    
+
+    const responseText = await response.text()
+    console.log(`ClickFunnels Enrollment API response status: ${response.status}`)
+    console.log(`ClickFunnels Enrollment API response body: ${responseText}`)
+
     if (!response.ok) {
-      console.error(`Error searching for contact: ${response.status}`)
-      return []
+      console.error("ClickFunnels Enrollment API error:", responseText)
+      throw new Error(`ClickFunnels Enrollment API error: ${response.status}`)
     }
-    
-    return await response.json()
+
+    const data = JSON.parse(responseText)
+    return { success: true, data }
   } catch (error) {
-    console.error(`Error finding contact by email ${email}:`, error)
-    return []
+    console.error("Error creating ClickFunnels enrollment:", error)
+    return { success: false, error: String(error) }
   }
 }
 
-// Functie om tags toe te voegen aan een contact
-async function addTagsToContact(contactId: number | string, tagNames: string[]) {
+export async function getContactEnrollments(contactId: number, courseId: number) {
+  if (!API_TOKEN) {
+    throw new Error("ClickFunnels API token is niet geconfigureerd")
+  }
+
   try {
-    for (const tagName of tagNames) {
-      try {
-        // Gebruik het workspace-specifieke endpoint voor het toevoegen van tags
-        const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts/${contactId}/apply_tags`
-        
-        const response = await fetch(API_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${API_TOKEN}`,
-            "Accept": "application/json"
-          },
-          body: JSON.stringify({
-            tag: {
-              name: tagName
-            }
-          }),
-        })
-        
-        console.log(`Applied tag "${tagName}" to contact ${contactId}, status: ${response.status}`)
-        
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error(`Error applying tag "${tagName}":`, errorText)
-          // We gaan door met de volgende tag, zelfs als deze mislukt
-        }
-      } catch (tagError) {
-        console.error(`Error applying tag "${tagName}" to contact ${contactId}:`, tagError)
-        // We gaan door met de volgende tag, zelfs als deze mislukt
-      }
+    console.log(`Checking enrollments for contact ID: ${contactId} in course ID: ${courseId}`)
+
+    // URL voor het ophalen van enrollments
+    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/courses/${courseId}/enrollments?filter[contact_id]=${contactId}`
+
+    console.log(`Using ClickFunnels Enrollment API URL: ${API_URL}`)
+
+    // Get enrollments from ClickFunnels
+    const response = await fetch(API_URL, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${API_TOKEN}`,
+        Accept: "application/json",
+      },
+    })
+
+    const responseText = await response.text()
+    console.log(`ClickFunnels Enrollment API response status: ${response.status}`)
+    console.log(`ClickFunnels Enrollment API response body: ${responseText}`)
+
+    if (!response.ok) {
+      console.error("ClickFunnels Enrollment API error:", responseText)
+      throw new Error(`ClickFunnels Enrollment API error: ${response.status}`)
     }
+
+    const data = JSON.parse(responseText)
+    return { success: true, data }
   } catch (error) {
-    console.error("Error adding tags to contact:", error)
-    // We laten de functie doorgaan zelfs als tags niet kunnen worden toegevoegd
+    console.error("Error getting ClickFunnels enrollments:", error)
+    return { success: false, error: String(error) }
   }
 }

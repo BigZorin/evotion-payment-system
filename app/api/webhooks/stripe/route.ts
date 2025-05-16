@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
-import { createClickFunnelsContact } from "@/lib/clickfunnels"
+import { createClickFunnelsContact, updateClickFunnelsContact, createCourseEnrollment } from "@/lib/clickfunnels"
 
 // Initialize Stripe with the secret key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -37,9 +37,31 @@ export async function POST(req: NextRequest) {
         // Only process if payment is successful
         if (session.payment_status === "paid") {
           // Extract customer data from session metadata
-          const { email, name, phone, productId, productName, membershipLevel } = session.metadata || {}
+          const { email, name, phone, productId, productName, membershipLevel, courseId, stripeCustomerId } =
+            session.metadata || {}
           console.log(`Customer data: email=${email}, name=${name}, phone=${phone}`)
-          console.log(`Product data: id=${productId}, name=${productName}, level=${membershipLevel}`)
+          console.log(
+            `Product data: id=${productId}, name=${productName}, level=${membershipLevel}, courseId=${courseId}`,
+          )
+          console.log(`Stripe customer ID: ${stripeCustomerId || session.customer}`)
+
+          // Zorg ervoor dat de betaling is gekoppeld aan de klant
+          const customerId = stripeCustomerId || session.customer
+          if (customerId && session.payment_intent) {
+            try {
+              // Koppel de betaling aan de klant als dat nog niet is gebeurd
+              const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent as string)
+
+              if (paymentIntent.customer !== customerId) {
+                await stripe.paymentIntents.update(session.payment_intent as string, {
+                  customer: customerId as string,
+                })
+                console.log(`Payment intent ${session.payment_intent} gekoppeld aan klant ${customerId}`)
+              }
+            } catch (error) {
+              console.error("Fout bij het koppelen van betaling aan klant:", error)
+            }
+          }
 
           if (email) {
             try {
@@ -63,34 +85,89 @@ export async function POST(req: NextRequest) {
               // Get payment date
               const paymentDate = new Date().toISOString()
 
-              // Create contact in ClickFunnels
-              console.log(`Creating ClickFunnels contact for ${email}...`)
-              const clickfunnelsResponse = await createClickFunnelsContact({
-                email,
-                first_name: firstName,
-                last_name: lastName,
-                phone,
-                tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
-                custom_fields: {
-                  product_id: productId || "",
-                  product_name: productName || "",
-                  membership_level: membershipLevel || "basic",
-                  payment_amount: formattedAmount,
-                  payment_date: paymentDate,
-                  payment_method: "Stripe",
-                  stripe_session_id: session.id,
-                  source: "webhook_payment",
-                },
-              })
-              console.log(`ClickFunnels response:`, clickfunnelsResponse)
-              console.log(`Successfully created ClickFunnels contact for ${email}`)
+              // Probeer eerst een bestaand contact bij te werken
+              let contactId: number | undefined
+              let enrollmentResult: any = { success: false }
+
+              try {
+                const updateResult = await updateClickFunnelsContact({
+                  email,
+                  first_name: firstName,
+                  last_name: lastName,
+                  phone,
+                  tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
+                  custom_fields: {
+                    product_id: productId || "",
+                    product_name: productName || "",
+                    membership_level: membershipLevel || "basic",
+                    payment_amount: formattedAmount,
+                    payment_date: paymentDate,
+                    payment_method: "Stripe",
+                    stripe_session_id: session.id,
+                    stripe_customer_id: (customerId as string) || "",
+                    source: "webhook_payment",
+                  },
+                })
+
+                if (updateResult.success) {
+                  console.log(`Evotion account bijgewerkt via webhook:`, updateResult.data)
+                  contactId = updateResult.contactId
+                } else {
+                  // Als bijwerken mislukt, maak een nieuw contact aan
+                  console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken via webhook...`)
+                  const createResult = await createClickFunnelsContact({
+                    email,
+                    first_name: firstName,
+                    last_name: lastName,
+                    phone,
+                    tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
+                    custom_fields: {
+                      product_id: productId || "",
+                      product_name: productName || "",
+                      membership_level: membershipLevel || "basic",
+                      payment_amount: formattedAmount,
+                      payment_date: paymentDate,
+                      payment_method: "Stripe",
+                      stripe_session_id: session.id,
+                      stripe_customer_id: (customerId as string) || "",
+                      source: "webhook_payment",
+                    },
+                  })
+                  console.log(`Evotion account aangemaakt via webhook:`, createResult)
+                  contactId = createResult.data?.id
+                }
+
+                // Als er een course ID is en een contact ID, schrijf de klant in voor de cursus
+                if (courseId && contactId) {
+                  console.log(`Enrolling contact ${contactId} in course ${courseId} via webhook...`)
+                  enrollmentResult = await createCourseEnrollment({
+                    contact_id: contactId,
+                    course_id: Number.parseInt(courseId),
+                    origination_source_type: "stripe_webhook",
+                    origination_source_id: 1,
+                  })
+
+                  if (enrollmentResult.success) {
+                    console.log(`Successfully enrolled contact in course via webhook:`, enrollmentResult.data)
+                  } else {
+                    console.error(`Failed to enroll contact in course via webhook:`, enrollmentResult.error)
+                  }
+                }
+              } catch (error) {
+                console.error("Error updating/creating Evotion account or enrollment via webhook:", error)
+                // Stuur een 200 OK terug naar Stripe om te voorkomen dat ze blijven proberen
+                return NextResponse.json({
+                  received: true,
+                  warning: "Webhook processed but Evotion account creation or enrollment failed",
+                })
+              }
             } catch (error) {
               // Log de fout maar laat de webhook succesvol voltooien
-              console.error(`Error creating ClickFunnels contact:`, error)
+              console.error(`Error creating Evotion account:`, error)
               // Stuur een 200 OK terug naar Stripe om te voorkomen dat ze blijven proberen
               return NextResponse.json({
                 received: true,
-                warning: "Webhook processed but ClickFunnels contact creation failed",
+                warning: "Webhook processed but Evotion account creation failed",
               })
             }
           } else {
