@@ -59,6 +59,7 @@ export async function createCheckoutSession({
     }
 
     console.log(`Product gevonden: ${product.name}, prijs: ${product.price}`)
+    console.log(`Product metadata:`, product.metadata)
 
     // Controleer of de prijs niet te laag is (minimaal 50 cent voor Stripe)
     if (product.price < 50) {
@@ -266,7 +267,7 @@ export async function createCheckoutSession({
   }
 }
 
-// Rest of the code remains the same...
+// Verbeterde handleSuccessfulPayment functie
 export async function handleSuccessfulPayment(sessionId: string) {
   try {
     // Haal de Stripe Checkout Session op
@@ -297,6 +298,9 @@ export async function handleSuccessfulPayment(sessionId: string) {
       stripeCustomerId,
     } = metadata || {}
 
+    console.log("Session metadata:", metadata)
+    console.log("Course ID from metadata:", courseId)
+
     // Basis response
     let response = {
       success: true,
@@ -314,6 +318,19 @@ export async function handleSuccessfulPayment(sessionId: string) {
       hasEnrollment: false,
       courseId: courseId as string,
       error: null as string | null,
+      invoiceUrl: null as string | null,
+      invoicePdf: null as string | null,
+    }
+
+    // Haal factuurgegevens op als die beschikbaar zijn
+    if (session.invoice) {
+      try {
+        const invoice = await stripe.invoices.retrieve(session.invoice as string)
+        response.invoiceUrl = invoice.hosted_invoice_url || null
+        response.invoicePdf = invoice.invoice_pdf || null
+      } catch (error) {
+        console.error("Fout bij het ophalen van factuurgegevens:", error)
+      }
     }
 
     // Probeer het Evotion account aan te maken/bij te werken en de gebruiker in te schrijven voor de cursus
@@ -330,6 +347,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
       let enrollmentResult: any = { success: false }
 
       try {
+        console.log(`Bijwerken van ClickFunnels contact voor email: ${customerEmail}`)
         const updateResult = await updateClickFunnelsContact({
           email: customerEmail as string,
           first_name: firstName as string,
@@ -351,9 +369,12 @@ export async function handleSuccessfulPayment(sessionId: string) {
           },
         })
 
+        console.log("ClickFunnels update result:", updateResult)
+
         if (updateResult.success) {
           console.log(`Evotion account bijgewerkt:`, updateResult.data)
           contactId = updateResult.contactId
+          console.log(`Contact ID: ${contactId}`)
         } else {
           // Als bijwerken mislukt, maak een nieuw contact aan
           console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken...`)
@@ -379,6 +400,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
           })
           console.log(`Evotion account aangemaakt:`, createResult)
           contactId = createResult.data?.id
+          console.log(`Nieuw contact ID: ${contactId}`)
         }
 
         // Als er een course ID is en een contact ID, schrijf de klant in voor de cursus
@@ -387,17 +409,21 @@ export async function handleSuccessfulPayment(sessionId: string) {
 
           // Check if the contact is already enrolled in the course
           const existingEnrollments = await getContactEnrollments(contactId, Number.parseInt(courseId))
+          console.log("Existing enrollments:", existingEnrollments)
 
           if (existingEnrollments.success && existingEnrollments.data.courses_enrollments.length > 0) {
             console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping enrollment.`)
             response = { ...response, hasEnrollment: true }
           } else {
+            console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
             enrollmentResult = await createCourseEnrollment({
               contact_id: contactId,
               course_id: Number.parseInt(courseId),
               origination_source_type: "stripe_checkout",
               origination_source_id: 1,
             })
+
+            console.log("Enrollment result:", enrollmentResult)
 
             if (enrollmentResult.success) {
               console.log(`Successfully enrolled contact in course:`, enrollmentResult.data)
@@ -407,6 +433,8 @@ export async function handleSuccessfulPayment(sessionId: string) {
               response = { ...response, hasEnrollment: false }
             }
           }
+        } else {
+          console.log(`Missing course ID (${courseId}) or contact ID (${contactId}). Cannot create enrollment.`)
         }
       } catch (error: any) {
         console.error("Error updating/creating Evotion account or enrollment:", error)

@@ -84,6 +84,8 @@ export async function updateClickFunnelsContact(contact: ClickFunnelsContact) {
       contact.email,
     )}`
 
+    console.log(`Using ClickFunnels search URL: ${SEARCH_URL}`)
+
     const searchResponse = await fetch(SEARCH_URL, {
       method: "GET",
       headers: {
@@ -168,6 +170,20 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
     const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/courses/${enrollment.course_id}/enrollments`
 
     console.log(`Using ClickFunnels Enrollment API URL: ${API_URL}`)
+    console.log(
+      `Enrollment data:`,
+      JSON.stringify(
+        {
+          courses_enrollment: {
+            contact_id: enrollment.contact_id,
+            origination_source_type: enrollment.origination_source_type || "api",
+            origination_source_id: enrollment.origination_source_id || 0,
+          },
+        },
+        null,
+        2,
+      ),
+    )
 
     // Create the enrollment in ClickFunnels
     const response = await fetch(API_URL, {
