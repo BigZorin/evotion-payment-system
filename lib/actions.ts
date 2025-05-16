@@ -1,6 +1,6 @@
 "use server"
-
 import Stripe from "stripe"
+import { getProductById } from "./products"
 import { createClickFunnelsContact } from "./clickfunnels"
 
 // Initialize Stripe
@@ -8,81 +8,138 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2023-10-16",
 })
 
+interface CreateCheckoutSessionParams {
+  productId: string
+  customerEmail: string
+  customerName?: string
+  customerPhone?: string
+}
+
+export async function createCheckoutSession({
+  productId,
+  customerEmail,
+  customerName,
+  customerPhone,
+}: CreateCheckoutSessionParams) {
+  const product = getProductById(productId)
+
+  if (!product) {
+    throw new Error("Product niet gevonden")
+  }
+
+  // Prepare customer data for ClickFunnels
+  const customerData = {
+    email: customerEmail,
+    name: customerName,
+    phone: customerPhone,
+    productId: product.id,
+    productName: product.name,
+    membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
+  }
+
+  // Create Stripe checkout session
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ["card", "ideal"],
+    line_items: [
+      {
+        price_data: {
+          currency: "eur",
+          product_data: {
+            name: product.name,
+            description: product.description,
+            metadata: {
+              productId: product.id,
+              ...product.metadata,
+            },
+          },
+          unit_amount: product.price,
+        },
+        quantity: 1,
+      },
+    ],
+    mode: "payment",
+    customer_email: customerEmail,
+    success_url: `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/checkout/${productId}`,
+    metadata: {
+      ...customerData,
+    },
+  })
+
+  return { sessionId: session.id }
+}
+
 export async function handleSuccessfulPayment(sessionId: string) {
-  console.log(`Processing successful payment for session: ${sessionId}`);
-  
+  console.log(`Processing successful payment for session: ${sessionId}`)
+
   try {
     // Retrieve the checkout session to get customer details
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ["payment_intent", "line_items"],
     })
 
-    console.log(`Session payment status: ${session.payment_status}`);
-    
+    console.log(`Session payment status: ${session.payment_status}`)
+
     if (session.payment_status !== "paid") {
-      console.log(`Payment not completed yet, status: ${session.payment_status}`);
-      return { 
-        success: false, 
-        error: "Betaling is nog niet voltooid" 
-      };
+      console.log(`Payment not completed yet, status: ${session.payment_status}`)
+      return {
+        success: false,
+        error: "Betaling is nog niet voltooid",
+      }
     }
 
     // Extract customer data from session metadata
-    const { email, name, phone, productId, productName, membershipLevel } = session.metadata || {};
-    
-    console.log(`Customer data from metadata: email=${email}, name=${name}, phone=${phone}`);
-    console.log(`Product data from metadata: id=${productId}, name=${productName}, level=${membershipLevel}`);
+    const { email, name, phone, productId, productName, membershipLevel } = session.metadata || {}
+
+    console.log(`Customer data from metadata: email=${email}, name=${name}, phone=${phone}`)
+    console.log(`Product data from metadata: id=${productId}, name=${productName}, level=${membershipLevel}`)
 
     // Fallback to session data if metadata is incomplete
-    const customerEmail = email || session.customer_details?.email;
-    const customerName = name || session.customer_details?.name;
-    const customerPhone = phone || session.customer_details?.phone;
+    const customerEmail = email || session.customer_details?.email
+    const customerName = name || session.customer_details?.name
+    const customerPhone = phone || session.customer_details?.phone
 
     if (!customerEmail) {
-      console.error(`Missing email in session data`);
-      return { 
-        success: false, 
-        error: "Klantgegevens ontbreken" 
-      };
+      console.error(`Missing email in session data`)
+      return {
+        success: false,
+        error: "Klantgegevens ontbreken",
+      }
     }
 
-    console.log(`Final customer data: email=${customerEmail}, name=${customerName}, phone=${customerPhone}`);
+    console.log(`Final customer data: email=${customerEmail}, name=${customerName}, phone=${customerPhone}`)
 
     try {
       // Create contact in ClickFunnels
-      console.log(`Creating ClickFunnels contact for ${customerEmail}...`);
-      
+      console.log(`Creating ClickFunnels contact for ${customerEmail}...`)
+
       // Split name into first and last name
-      let firstName = customerName;
-      let lastName = "";
-      
+      let firstName = customerName
+      let lastName = ""
+
       if (customerName && customerName.includes(" ")) {
-        const nameParts = customerName.split(" ");
-        firstName = nameParts[0];
-        lastName = nameParts.slice(1).join(" ");
+        const nameParts = customerName.split(" ")
+        firstName = nameParts[0]
+        lastName = nameParts.slice(1).join(" ")
       }
-      
+
       // Get payment amount from session
-      const amountTotal = session.amount_total;
-      const currency = session.currency;
-      const formattedAmount = amountTotal ? 
-        new Intl.NumberFormat('nl-NL', { style: 'currency', currency }).format(amountTotal / 100) : 
-        "onbekend";
-      
+      const amountTotal = session.amount_total
+      const currency = session.currency
+      const formattedAmount = amountTotal
+        ? new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(amountTotal / 100)
+        : "onbekend"
+
       // Get payment date
-      const paymentDate = new Date().toISOString();
-      
+      const paymentDate = new Date().toISOString()
+
       // Create the contact with enhanced data
       const clickfunnelsResponse = await createClickFunnelsContact({
         email: customerEmail,
         first_name: firstName,
         last_name: lastName,
         phone: customerPhone,
-        tags: [
-          membershipLevel || "basic", 
-          "stripe-customer",
-          "paid-customer"
-        ],
+        tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
         custom_fields: {
           product_id: productId || "",
           product_name: productName || "",
@@ -91,35 +148,36 @@ export async function handleSuccessfulPayment(sessionId: string) {
           payment_date: paymentDate,
           payment_method: "Stripe",
           stripe_session_id: sessionId,
-          source: "website_payment"
-        }
-      });
-      
-      console.log(`ClickFunnels contact created successfully:`, clickfunnelsResponse);
+          source: "website_payment",
+        },
+      })
 
-      return { 
-        success: true, 
+      console.log(`ClickFunnels contact created successfully:`, clickfunnelsResponse)
+
+      return {
+        success: true,
         customerEmail,
         customerName,
-        productName: productName || "dienst"
-      };
+        productName: productName || "dienst",
+      }
     } catch (error) {
-      console.error("Error creating ClickFunnels contact:", error);
-      
+      console.error("Error creating ClickFunnels contact:", error)
+
       // Return partial success to show a friendly message to the customer
       // even though the ClickFunnels account creation failed
-      return { 
-        success: false, 
+      return {
+        success: false,
         partialSuccess: true,
         customerEmail,
-        error: "Je betaling is geslaagd, maar er is een probleem opgetreden bij het aanmaken van je account. Ons team zal contact met je opnemen om dit op te lossen." 
-      };
+        error:
+          "Je betaling is geslaagd, maar er is een probleem opgetreden bij het aanmaken van je account. Ons team zal contact met je opnemen om dit op te lossen.",
+      }
     }
   } catch (error) {
-    console.error("Error handling successful payment:", error);
-    return { 
-      success: false, 
-      error: "Er is een fout opgetreden bij het verwerken van je betaling. Neem contact op met onze klantenservice." 
-    };
+    console.error("Error handling successful payment:", error)
+    return {
+      success: false,
+      error: "Er is een fout opgetreden bij het verwerken van je betaling. Neem contact op met onze klantenservice.",
+    }
   }
 }

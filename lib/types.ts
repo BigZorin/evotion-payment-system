@@ -8,18 +8,18 @@ export interface Product {
 }
 
 export interface ClickFunnelsContact {
-  email: string;
-  first_name?: string;
-  last_name?: string;
-  phone?: string;
-  custom_fields?: Record<string, string>;
-  tags?: string[];  // Toegevoegd voor ondersteuning van tags
-  time_zone?: string;  // Toegevoegd voor tijdzone ondersteuning
-  fb_url?: string;  // Toegevoegd voor sociale media
-  twitter_url?: string;  // Toegevoegd voor sociale media
-  instagram_url?: string;  // Toegevoegd voor sociale media
-  linkedin_url?: string;  // Toegevoegd voor sociale media
-  website_url?: string;  // Toegevoegd voor website
+  email: string
+  first_name?: string
+  last_name?: string
+  phone?: string
+  custom_fields?: Record<string, string>
+  tags?: string[]
+  time_zone?: string
+  fb_url?: string
+  twitter_url?: string
+  instagram_url?: string
+  linkedin_url?: string
+  website_url?: string
 }
 
 export interface PaymentDetails {
