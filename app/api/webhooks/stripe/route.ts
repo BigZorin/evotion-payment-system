@@ -72,10 +72,10 @@ export async function POST(req: NextRequest) {
             stripeCustomerId,
           } = session.metadata || {}
 
-          // Gebruik email uit metadata of uit session, zorg ervoor dat we altijd een email hebben
-          const customerEmail = metadataEmail || session.customer_email || ""
+          // Use customer_email from session or email from metadata
+          const email = session.customer_email || metadataEmail
 
-          console.log(`Customer data: email=${customerEmail}, name=${name}, phone=${phone}, birthDate=${birthDate}`)
+          console.log(`Customer data: email=${email}, name=${name}, phone=${phone}, birthDate=${birthDate}`)
           console.log(
             `Product data: id=${productId}, name=${productName}, level=${membershipLevel}, courseId=${courseId}, kahunasPackage=${kahunasPackage}`,
           )
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
                   if (finalizedInvoice.status === "paid") {
                     // Verstuur de factuur per e-mail
                     await stripe.invoices.sendInvoice(finalizedInvoice.id)
-                    console.log(`Factuur verstuurd naar ${customerEmail}`)
+                    console.log(`Factuur verstuurd naar ${email}`)
                   }
                 } catch (invoiceError) {
                   console.error("Fout bij het aanmaken van de factuur:", invoiceError)
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (customerEmail) {
+          if (email) {
             try {
               // Get payment amount from session
               const amountTotal = session.amount_total
@@ -168,8 +168,15 @@ export async function POST(req: NextRequest) {
               let enrollmentResult: any = { success: false }
 
               try {
+                console.log(`Bijwerken van ClickFunnels contact voor email: ${email}`)
+
+                // Check if we have a valid email
+                if (!email) {
+                  throw new Error("Email is required for updating a contact")
+                }
+
                 const updateResult = await updateClickFunnelsContact({
-                  email: customerEmail,
+                  email,
                   first_name: firstName || "",
                   last_name: lastName || "",
                   phone: phone || "",
@@ -196,7 +203,7 @@ export async function POST(req: NextRequest) {
                   // Als bijwerken mislukt, maak een nieuw contact aan
                   console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken via webhook...`)
                   const createResult = await createClickFunnelsContact({
-                    email: customerEmail,
+                    email,
                     first_name: firstName || "",
                     last_name: lastName || "",
                     phone: phone || "",
@@ -273,7 +280,7 @@ export async function POST(req: NextRequest) {
                   // Update het ClickFunnels contact met de factuurgegevens
                   if (contactId) {
                     await updateClickFunnelsContact({
-                      email: customerEmail,
+                      email,
                       custom_fields: customFields,
                     })
                   }
