@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
-import { createClickFunnelsContact, updateClickFunnelsContact, createCourseEnrollment } from "@/lib/clickfunnels"
+import { upsertClickFunnelsContact, createCourseEnrollment } from "@/lib/clickfunnels"
 
 // Initialize Stripe with the secret key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -168,14 +168,14 @@ export async function POST(req: NextRequest) {
               let enrollmentResult: any = { success: false }
 
               try {
-                console.log(`Bijwerken van ClickFunnels contact voor email: ${email}`)
+                console.log(`Upserting ClickFunnels contact for email: ${email}`)
 
                 // Check if we have a valid email
                 if (!email) {
-                  throw new Error("Email is required for updating a contact")
+                  throw new Error("Email is required for upserting a contact")
                 }
 
-                const updateResult = await updateClickFunnelsContact({
+                const upsertResult = await upsertClickFunnelsContact({
                   email,
                   first_name: firstName || "",
                   last_name: lastName || "",
@@ -196,34 +196,12 @@ export async function POST(req: NextRequest) {
                   },
                 })
 
-                if (updateResult.success) {
-                  console.log(`Evotion account bijgewerkt via webhook:`, updateResult.data)
-                  contactId = updateResult.contactId
+                if (upsertResult.success) {
+                  console.log(`Evotion account upserted via webhook:`, upsertResult.data)
+                  contactId = upsertResult.contactId
                 } else {
-                  // Als bijwerken mislukt, maak een nieuw contact aan
-                  console.log(`Geen bestaand account gevonden, nieuw Evotion account aanmaken via webhook...`)
-                  const createResult = await createClickFunnelsContact({
-                    email,
-                    first_name: firstName || "",
-                    last_name: lastName || "",
-                    // Explicitly omit phone to prevent the "Phone number has already been taken" error
-                    tags: [membershipLevel || "basic", "stripe-customer", "paid-customer"],
-                    custom_fields: {
-                      product_id: productId || "",
-                      product_name: productName || "",
-                      membership_level: membershipLevel || "basic",
-                      payment_amount: formattedAmount,
-                      payment_date: paymentDate,
-                      payment_method: paymentMethodType,
-                      stripe_session_id: session.id,
-                      stripe_customer_id: (customerId as string) || "",
-                      birth_date: birthDate || "",
-                      kahunas_package: kahunasPackage || productId || "",
-                      source: "webhook_payment",
-                    },
-                  })
-                  console.log(`Evotion account aangemaakt via webhook:`, createResult)
-                  contactId = createResult.data?.id
+                  console.error(`Failed to upsert ClickFunnels contact via webhook: ${upsertResult.error}`)
+                  throw new Error(`Failed to upsert ClickFunnels contact via webhook: ${upsertResult.error}`)
                 }
 
                 // Als er een course ID is en een contact ID, schrijf de klant in voor de cursus
@@ -241,8 +219,8 @@ export async function POST(req: NextRequest) {
 
                     try {
                       enrollmentResult = await createCourseEnrollment({
-                        contact_id: Number(contactId),
-                        course_id: Number.parseInt(courseId),
+                        contact_id: contactId,
+                        course_id: courseId,
                         origination_source_type: "stripe_webhook",
                         origination_source_id: 1,
                       })
@@ -314,7 +292,7 @@ export async function POST(req: NextRequest) {
 
                   // Update het ClickFunnels contact met de factuurgegevens
                   if (contactId) {
-                    await updateClickFunnelsContact({
+                    await upsertClickFunnelsContact({
                       email,
                       custom_fields: customFields,
                     })
