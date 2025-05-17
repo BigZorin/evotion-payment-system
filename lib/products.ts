@@ -88,3 +88,7 @@ export function getProductCourseMapping(): Record<string, { productName: string;
 
   return mapping
 }
+
+export async function getProducts(): Promise<Product[]> {
+  return products
+}

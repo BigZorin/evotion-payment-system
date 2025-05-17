@@ -35,7 +35,7 @@ export function ProductList({ products }: ProductListProps) {
           </CardContent>
           <CardFooter className="pt-4">
             <Link href={`/checkout/${product.id}`} className="w-full">
-              <Button className="w-full bg-[#1e1839] hover:bg-white hover:text-[#1e1839] text-white border border-[#1e1839] transition-colors duration-300">
+              <Button className="w-full bg-[#1e1839] hover:bg-[#1e1839]/90 text-white transition-colors duration-300">
                 Selecteer en Betaal
               </Button>
             </Link>

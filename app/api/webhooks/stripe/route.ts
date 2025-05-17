@@ -5,7 +5,12 @@ import { createCourseEnrollment, getContactEnrollments } from "@/lib/enrollment"
 import { getProductById } from "@/lib/products"
 import { upsertClickFunnelsContact } from "@/lib/clickfunnels"
 
-// Voeg deze functie toe aan de webhook handler
+// Constanten voor betere leesbaarheid en onderhoud
+const MAX_ENROLLMENT_ATTEMPTS = 3
+const RETRY_DELAY_MS = 1000
+const WEBHOOK_TIMEOUT_MS = 10000 // 10 seconden timeout voor de hele webhook verwerking
+
+// Verbeterde functie voor het inschrijven van gebruikers via webhook
 async function enrollUserInCoursesWebhook(
   contactId: number,
   courseIds: string[],
@@ -27,80 +32,106 @@ async function enrollUserInCoursesWebhook(
 
   console.log(`Webhook enrolling contact ${contactId} in ${courseIds.length} courses...`)
 
-  // Process each course enrollment sequentially
-  for (const courseId of courseIds) {
-    try {
-      // Controleer eerst of de gebruiker al is ingeschreven voor deze cursus
-      const existingEnrollments = await getContactEnrollments(contactId, courseId)
+  // Gebruik Promise.all voor parallelle verwerking van voorcontroles
+  const enrollmentChecks = await Promise.all(
+    courseIds.map(async (courseId) => {
+      try {
+        // Controleer eerst of de gebruiker al is ingeschreven voor deze cursus
+        const existingEnrollments = await getContactEnrollments(contactId, courseId)
+        const isAlreadyEnrolled =
+          existingEnrollments.success && existingEnrollments.data && existingEnrollments.data.length > 0
 
-      if (existingEnrollments.success && existingEnrollments.data && existingEnrollments.data.length > 0) {
-        console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping webhook enrollment.`)
-        alreadyEnrolledCourses.push(courseId)
-        continue
+        // Controleer of deze inschrijving al is verwerkt
+        const canTrackEnrollment = await trackEnrollment(sessionId, contactId, courseId)
+
+        return {
+          courseId,
+          isAlreadyEnrolled,
+          canTrackEnrollment,
+        }
+      } catch (error) {
+        console.error(`Error checking enrollment for course ${courseId}:`, error)
+        return {
+          courseId,
+          isAlreadyEnrolled: false,
+          canTrackEnrollment: false,
+          error,
+        }
       }
+    }),
+  )
 
-      // Check if this enrollment has already been processed
-      if (await trackEnrollment(sessionId, contactId, courseId)) {
-        console.log(`Creating new enrollment via webhook for contact ${contactId} in course ${courseId}...`)
+  // Verwerk de resultaten van de voorcontroles
+  for (const check of enrollmentChecks) {
+    const { courseId, isAlreadyEnrolled, canTrackEnrollment, error } = check
 
-        // Try multiple times with different approaches if needed
-        let enrollmentSuccess = false
-        let attempts = 0
-        const maxAttempts = 3
+    if (error) {
+      console.error(`Error in pre-check for course ${courseId}:`, error)
+      failedCourses.push(courseId)
+      continue
+    }
 
-        while (!enrollmentSuccess && attempts < maxAttempts) {
-          attempts++
-          console.log(`Webhook enrollment attempt ${attempts} of ${maxAttempts} for course ${courseId}`)
+    if (isAlreadyEnrolled) {
+      console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping webhook enrollment.`)
+      alreadyEnrolledCourses.push(courseId)
+      continue
+    }
 
-          try {
-            const enrollmentResult = await createCourseEnrollment({
-              contact_id: contactId,
-              course_id: courseId,
-              origination_source_type: "stripe_webhook",
-              origination_source_id: 1,
-            })
+    if (!canTrackEnrollment) {
+      console.log(
+        `Enrollment for session ${sessionId} and course ${courseId} already processed or will be handled by success page. Skipping webhook enrollment.`,
+      )
+      continue
+    }
 
-            console.log(`Webhook attempt ${attempts} result for course ${courseId}:`, enrollmentResult)
+    // Probeer de inschrijving te maken
+    console.log(`Creating new enrollment via webhook for contact ${contactId} in course ${courseId}...`)
 
-            if (enrollmentResult.success) {
-              if (enrollmentResult.alreadyEnrolled) {
-                // User is already enrolled, add to alreadyEnrolledCourses
-                enrollmentSuccess = true
-                console.log(`Contact ${contactId} is already enrolled in course ${courseId} (webhook check)`)
-                alreadyEnrolledCourses.push(courseId)
-              } else {
-                // New enrollment successful
-                enrollmentSuccess = true
-                console.log(`Successfully enrolled contact in course ${courseId} via webhook on attempt ${attempts}`)
-                enrolledCourses.push(courseId)
-              }
-              break
-            } else {
-              console.error(
-                `Failed to enroll contact in course ${courseId} via webhook on attempt ${attempts}:`,
-                enrollmentResult.error,
-              )
-              // Wait a bit before retrying
-              await new Promise((resolve) => setTimeout(resolve, 1000))
-            }
-          } catch (enrollError) {
-            console.error(`Error during webhook enrollment attempt ${attempts} for course ${courseId}:`, enrollError)
-            // Wait a bit before retrying
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+    let enrollmentSuccess = false
+    let attempts = 0
+
+    while (!enrollmentSuccess && attempts < MAX_ENROLLMENT_ATTEMPTS) {
+      attempts++
+      console.log(`Webhook enrollment attempt ${attempts} of ${MAX_ENROLLMENT_ATTEMPTS} for course ${courseId}`)
+
+      try {
+        const enrollmentResult = await createCourseEnrollment({
+          contact_id: contactId,
+          course_id: courseId,
+          origination_source_type: "stripe_webhook",
+          origination_source_id: 1,
+        })
+
+        console.log(`Webhook attempt ${attempts} result for course ${courseId}:`, enrollmentResult)
+
+        if (enrollmentResult.success) {
+          if (enrollmentResult.alreadyEnrolled) {
+            enrollmentSuccess = true
+            console.log(`Contact ${contactId} is already enrolled in course ${courseId} (webhook check)`)
+            alreadyEnrolledCourses.push(courseId)
+          } else {
+            enrollmentSuccess = true
+            console.log(`Successfully enrolled contact in course ${courseId} via webhook on attempt ${attempts}`)
+            enrolledCourses.push(courseId)
           }
+          break
+        } else {
+          console.error(
+            `Failed to enroll contact in course ${courseId} via webhook on attempt ${attempts}:`,
+            enrollmentResult.error,
+          )
+          // Wacht voor de volgende poging
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
         }
-
-        if (!enrollmentSuccess) {
-          console.error(`All ${maxAttempts} webhook enrollment attempts failed for course ${courseId}`)
-          failedCourses.push(courseId)
-        }
-      } else {
-        console.log(
-          `Enrollment for session ${sessionId} and course ${courseId} already processed or will be handled by success page. Skipping webhook enrollment.`,
-        )
+      } catch (enrollError) {
+        console.error(`Error during webhook enrollment attempt ${attempts} for course ${courseId}:`, enrollError)
+        // Wacht voor de volgende poging
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
       }
-    } catch (error) {
-      console.error(`Error enrolling in course ${courseId} via webhook:`, error)
+    }
+
+    if (!enrollmentSuccess) {
+      console.error(`All ${MAX_ENROLLMENT_ATTEMPTS} webhook enrollment attempts failed for course ${courseId}`)
       failedCourses.push(courseId)
     }
   }
@@ -114,45 +145,93 @@ async function enrollUserInCoursesWebhook(
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.text()
-  const signature = req.headers.get("stripe-signature") as string
+  // Performance meting starten
+  const startTime = performance.now()
 
-  let event
+  // Implementeer een timeout voor de hele webhook verwerking
+  let timeoutId: NodeJS.Timeout | null = null
+  const timeoutPromise = new Promise<NextResponse>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      console.error("⚠️ Webhook processing timed out after", WEBHOOK_TIMEOUT_MS, "ms")
+      reject(new Error("Webhook processing timed out"))
+    }, WEBHOOK_TIMEOUT_MS)
+  })
+
   try {
-    event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!)
-  } catch (err: any) {
-    console.error(`⚠️ Webhook signature verification failed.`, err.message)
-    return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 })
-  }
+    const body = await req.text()
+    const signature = req.headers.get("stripe-signature") as string
 
-  // Handle the event
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object
+    // Vroege validatie van de signature header
+    if (!signature) {
+      console.error("⚠️ Missing Stripe signature header")
+      return new NextResponse("Webhook Error: Missing signature header", { status: 400 })
+    }
 
-    // Extract metadata
-    const { metadata } = session
-    const {
-      email,
-      first_name,
-      last_name,
-      phone,
-      birth_date,
-      product_id,
-      product_name,
-      course_id,
-      enrollment_handled_by,
-    } = metadata || {}
-
-    // Get customer email from session or metadata
-    const customerEmail = session.customer_email || email
-
-    console.log(`Webhook received for completed checkout session: ${session.id}`)
-    console.log(`Customer email: ${customerEmail}`)
-    console.log(`Session metadata:`, metadata)
-
+    let event
     try {
-      // Create or update contact in ClickFunnels
-      if (customerEmail) {
+      event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!)
+    } catch (err: any) {
+      console.error(`⚠️ Webhook signature verification failed.`, err.message)
+      return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 })
+    }
+
+    // Alleen verwerk de events die we nodig hebben
+    if (
+      event.type !== "checkout.session.completed" &&
+      event.type !== "payment_intent.succeeded" &&
+      event.type !== "invoice.paid"
+    ) {
+      console.log(`Skipping webhook event type: ${event.type}`)
+      return new NextResponse(JSON.stringify({ received: true, eventType: event.type }))
+    }
+
+    // Handle the event
+    const processingPromise = (async () => {
+      // Verschillende event types verwerken
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object
+
+        // Extract metadata
+        const { metadata } = session
+        const {
+          email,
+          first_name,
+          last_name,
+          phone,
+          birth_date,
+          product_id,
+          product_name,
+          course_id,
+          enrollment_handled_by,
+          clickfunnels_course_ids: courseIdsJson,
+        } = metadata || {}
+
+        // Get customer email from session or metadata
+        const customerEmail = session.customer_email || email
+
+        console.log(`Webhook received for completed checkout session: ${session.id}`)
+        console.log(`Customer email: ${customerEmail}`)
+
+        // Controleer of we de inschrijving moeten verwerken
+        if (enrollment_handled_by === "success_page") {
+          console.log(
+            `Enrollment for session ${session.id} is handled by the success page. Skipping webhook enrollment.`,
+          )
+
+          // Performance meting eindigen
+          const endTime = performance.now()
+          console.log(`Webhook processed in ${Math.round(endTime - startTime)}ms (skipped enrollment)`)
+
+          return new NextResponse(JSON.stringify({ received: true, skipped: true }))
+        }
+
+        // Alleen verwerk als we een e-mailadres hebben
+        if (!customerEmail) {
+          console.error("No customer email found in session or metadata")
+          return new NextResponse(JSON.stringify({ received: true, error: "Missing customer email" }), { status: 400 })
+        }
+
+        // Maak of update het contact in ClickFunnels
         const contactResult = await upsertClickFunnelsContact({
           email: customerEmail,
           first_name: first_name,
@@ -171,57 +250,149 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        if (contactResult.success && contactResult.contactId) {
-          console.log(`Contact created/updated via webhook with ID: ${contactResult.contactId}`)
-
-          // Haal het product op om de cursus IDs te krijgen
-          const productId = product_id
-          const courseId = course_id
-          const product = productId ? getProductById(productId as string) : undefined
-          const courseIds = product?.metadata?.clickfunnels_course_ids || []
-
-          // Voor backward compatibility, voeg het oude courseId toe als het niet al in de lijst staat
-          if (courseId && !courseIds.includes(courseId as string)) {
-            courseIds.push(courseId as string)
-          }
-
-          console.log("Course IDs for webhook enrollment:", courseIds)
-
-          // Als er course IDs zijn en een contact ID, schrijf de klant in voor de cursussen
-          // Only handle enrollment if it's not being handled by the success page
-          if (courseIds.length > 0 && contactResult.contactId && enrollment_handled_by !== "success_page") {
-            console.log(`Webhook enrolling contact ${contactResult.contactId} in ${courseIds.length} courses...`)
-
-            const enrollmentResult = await enrollUserInCoursesWebhook(contactResult.contactId, courseIds, session.id)
-
-            if (enrollmentResult.enrolledCourses.length > 0) {
-              console.log(
-                `Successfully enrolled in courses via webhook: ${enrollmentResult.enrolledCourses.join(", ")}`,
-              )
-            }
-
-            if (enrollmentResult.alreadyEnrolledCourses.length > 0) {
-              console.log(`User was already enrolled in courses: ${enrollmentResult.alreadyEnrolledCourses.join(", ")}`)
-            }
-
-            if (enrollmentResult.failedCourses.length > 0) {
-              console.warn(`Failed to enroll in some courses via webhook: ${enrollmentResult.failedCourses.join(", ")}`)
-            }
-          } else if (courseIds.length > 0 && contactResult.contactId) {
-            console.log(
-              `Enrollment for session ${session.id} is handled by the success page. Skipping webhook enrollment.`,
-            )
-          }
-        } else {
+        if (!contactResult.success || !contactResult.contactId) {
           console.error("Failed to create/update contact via webhook:", contactResult.error)
+          return new NextResponse(
+            JSON.stringify({
+              received: true,
+              error: "Failed to create/update contact",
+            }),
+            { status: 500 },
+          )
         }
-      } else {
-        console.error("No customer email found in session or metadata")
-      }
-    } catch (error) {
-      console.error("Error processing webhook:", error)
-    }
-  }
 
-  return new NextResponse(JSON.stringify({ received: true }))
+        console.log(`Contact created/updated via webhook with ID: ${contactResult.contactId}`)
+
+        // Haal het product op om de cursus IDs te krijgen
+        const productId = product_id
+        const courseId = course_id
+        const product = productId ? getProductById(productId as string) : undefined
+        let courseIds = product?.metadata?.clickfunnels_course_ids || []
+
+        // Probeer courseIds uit JSON te parsen als het beschikbaar is
+        if (courseIdsJson) {
+          try {
+            const parsedCourseIds = JSON.parse(courseIdsJson as string)
+            if (Array.isArray(parsedCourseIds)) {
+              courseIds = parsedCourseIds
+            }
+          } catch (e) {
+            console.error("Error parsing course IDs from JSON:", e)
+          }
+        }
+
+        // Voor backward compatibility, voeg het oude courseId toe als het niet al in de lijst staat
+        if (courseId && !courseIds.includes(courseId as string)) {
+          courseIds.push(courseId as string)
+        }
+
+        console.log("Course IDs for webhook enrollment:", courseIds)
+
+        // Als er course IDs zijn en een contact ID, schrijf de klant in voor de cursussen
+        if (courseIds.length > 0 && contactResult.contactId) {
+          console.log(`Webhook enrolling contact ${contactResult.contactId} in ${courseIds.length} courses...`)
+
+          const enrollmentResult = await enrollUserInCoursesWebhook(contactResult.contactId, courseIds, session.id)
+
+          if (enrollmentResult.enrolledCourses.length > 0) {
+            console.log(`Successfully enrolled in courses via webhook: ${enrollmentResult.enrolledCourses.join(", ")}`)
+          }
+
+          if (enrollmentResult.alreadyEnrolledCourses.length > 0) {
+            console.log(`User was already enrolled in courses: ${enrollmentResult.alreadyEnrolledCourses.join(", ")}`)
+          }
+
+          if (enrollmentResult.failedCourses.length > 0) {
+            console.warn(`Failed to enroll in some courses via webhook: ${enrollmentResult.failedCourses.join(", ")}`)
+          }
+
+          // Performance meting eindigen
+          const endTime = performance.now()
+          console.log(
+            `Webhook processed in ${Math.round(endTime - startTime)}ms with ${enrollmentResult.enrolledCourses.length} enrollments`,
+          )
+
+          return new NextResponse(
+            JSON.stringify({
+              received: true,
+              enrolled: enrollmentResult.enrolledCourses.length,
+              alreadyEnrolled: enrollmentResult.alreadyEnrolledCourses.length,
+              failed: enrollmentResult.failedCourses.length,
+            }),
+          )
+        } else {
+          console.log(`No courses to enroll in or missing contact ID`)
+
+          // Performance meting eindigen
+          const endTime = performance.now()
+          console.log(`Webhook processed in ${Math.round(endTime - startTime)}ms (no enrollments)`)
+
+          return new NextResponse(JSON.stringify({ received: true, noCourses: true }))
+        }
+      } else if (event.type === "payment_intent.succeeded") {
+        // Verwerk payment_intent.succeeded events
+        const paymentIntent = event.data.object
+        console.log(`Payment intent succeeded: ${paymentIntent.id}`)
+
+        // Performance meting eindigen
+        const endTime = performance.now()
+        console.log(`Webhook processed in ${Math.round(endTime - startTime)}ms (payment intent)`)
+
+        return new NextResponse(
+          JSON.stringify({
+            received: true,
+            eventType: "payment_intent.succeeded",
+            paymentIntentId: paymentIntent.id,
+          }),
+        )
+      } else if (event.type === "invoice.paid") {
+        // Verwerk invoice.paid events
+        const invoice = event.data.object
+        console.log(`Invoice paid: ${invoice.id}`)
+
+        // Performance meting eindigen
+        const endTime = performance.now()
+        console.log(`Webhook processed in ${Math.round(endTime - startTime)}ms (invoice paid)`)
+
+        return new NextResponse(
+          JSON.stringify({
+            received: true,
+            eventType: "invoice.paid",
+            invoiceId: invoice.id,
+          }),
+        )
+      } else {
+        console.log(`Unhandled event type: ${event.type}`)
+        return new NextResponse(JSON.stringify({ received: true, eventType: event.type }))
+      }
+    })()
+
+    // Race tussen de verwerking en de timeout
+    const response = await Promise.race([processingPromise, timeoutPromise])
+
+    // Clear the timeout if processing completed successfully
+    if (timeoutId) clearTimeout(timeoutId)
+
+    return response
+  } catch (error) {
+    // Clear the timeout if there was an error
+    if (timeoutId) clearTimeout(timeoutId)
+
+    console.error("Error processing webhook:", error)
+
+    // Specifieke foutafhandeling voor timeout
+    if (error instanceof Error && error.message === "Webhook processing timed out") {
+      return new NextResponse(
+        JSON.stringify({
+          received: true,
+          error: "Webhook processing timed out",
+          message:
+            "The webhook was received but processing took too long. The operation may still complete in the background.",
+        }),
+        { status: 202 }, // 202 Accepted - we hebben het ontvangen maar niet volledig verwerkt
+      )
+    }
+
+    return new NextResponse(JSON.stringify({ received: true, error: "Internal server error" }), { status: 500 })
+  }
 }

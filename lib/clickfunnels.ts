@@ -3,11 +3,231 @@
 import type { ClickFunnelsContact, ClickFunnelsEnrollment } from "./types"
 
 // Deze waarden moeten worden ingesteld als omgevingsvariabelen
-const CLICKFUNNELS_SUBDOMAIN = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
+const CLICKFUNNELS_SUBDOMAIN_OLD = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
 const CLICKFUNNELS_WORKSPACE_ID = process.env.CLICKFUNNELS_WORKSPACE_ID || "" // Vervang met je workspace ID
 const API_TOKEN = process.env.CLICKFUNNELS_API_TOKEN
 const CLICKFUNNELS_ACCOUNT_ID = process.env.CLICKFUNNELS_ACCOUNT_ID || ""
 
+// Constanten voor betere leesbaarheid en onderhoud
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 1000
+
+import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN } from "./config"
+
+export interface ClickfunnelsProduct {
+  id: number
+  public_id: string
+  name: string
+  description: string
+  variant_ids: string[]
+  variants?: ClickfunnelsVariant[]
+  prices?: ClickfunnelsPrice[]
+  // ... other properties
+}
+
+export interface ClickfunnelsVariant {
+  id: number
+  public_id: string
+  product_id: number
+  name: string
+  description: string | null
+  sku: string | null
+  price_ids: string[] | null
+  properties_values?: {
+    property_id: number
+    value: string
+  }[]
+  // ... other properties
+}
+
+export interface ClickfunnelsPrice {
+  id: number
+  public_id: string
+  variant_id: number
+  amount: number
+  currency: string
+  recurring: boolean
+  recurring_interval?: string
+  recurring_interval_count?: number
+  // ... other properties
+}
+
+export async function getClickfunnelsProducts(): Promise<ClickfunnelsProduct[]> {
+  try {
+    const response = await fetch(`https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products`, {
+      headers: {
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+        Accept: "application/json",
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch products: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error("Error fetching ClickFunnels products:", error)
+    throw error
+  }
+}
+
+export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsProduct> {
+  try {
+    const response = await fetch(`https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/${id}`, {
+      headers: {
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+        Accept: "application/json",
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch product: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error(`Error fetching ClickFunnels product ${id}:`, error)
+    throw error
+  }
+}
+
+export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVariant> {
+  try {
+    const response = await fetch(
+      `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/variants/${id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+          Accept: "application/json",
+        },
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch variant: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error(`Error fetching ClickFunnels variant ${id}:`, error)
+    throw error
+  }
+}
+
+export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPrice> {
+  try {
+    const response = await fetch(`https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/prices/${id}`, {
+      headers: {
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+        Accept: "application/json",
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch price: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error(`Error fetching ClickFunnels price ${id}:`, error)
+    throw error
+  }
+}
+
+export async function getProductWithVariantsAndPrices(productId: string): Promise<ClickfunnelsProduct> {
+  try {
+    // Fetch the product
+    const product = await getClickFunnelsProduct(productId)
+
+    // Fetch all variants for this product
+    const variantPromises = product.variant_ids.map((variantId) => getClickfunnelsVariant(variantId))
+    const variants = await Promise.all(variantPromises)
+
+    // Fetch all prices for each variant
+    const allPrices: ClickfunnelsPrice[] = []
+    for (const variant of variants) {
+      if (variant.price_ids && variant.price_ids.length > 0) {
+        const pricePromises = variant.price_ids.map((priceId) => getClickfunnelsPrice(priceId))
+        const variantPrices = await Promise.all(pricePromises)
+        allPrices.push(...variantPrices)
+      }
+    }
+
+    // Return the product with variants and prices
+    return {
+      ...product,
+      variants,
+      prices: allPrices,
+    }
+  } catch (error) {
+    console.error(`Error fetching product with variants and prices for ${productId}:`, error)
+    throw error
+  }
+}
+
+export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[]> {
+  try {
+    // Fetch all products
+    const products = await getClickfunnelsProducts()
+
+    // For each product, fetch its variants
+    const productsWithVariants = await Promise.all(
+      products.map(async (product) => {
+        try {
+          // Fetch all variants for this product
+          const variantPromises = product.variant_ids.map((variantId) =>
+            getClickfunnelsVariant(variantId).catch((err) => {
+              console.error(`Error fetching variant ${variantId}:`, err)
+              return null
+            }),
+          )
+
+          const variants = (await Promise.all(variantPromises)).filter((v) => v !== null) as ClickfunnelsVariant[]
+
+          // Fetch all prices for each variant
+          const allPrices: ClickfunnelsPrice[] = []
+          for (const variant of variants) {
+            if (variant.price_ids && variant.price_ids.length > 0) {
+              const pricePromises = variant.price_ids.map((priceId) =>
+                getClickfunnelsPrice(priceId).catch((err) => {
+                  console.error(`Error fetching price ${priceId}:`, err)
+                  return null
+                }),
+              )
+              const variantPrices = (await Promise.all(pricePromises)).filter((p) => p !== null) as ClickfunnelsPrice[]
+              allPrices.push(...variantPrices)
+            }
+          }
+
+          return {
+            ...product,
+            variants,
+            prices: allPrices,
+          }
+        } catch (error) {
+          console.error(`Error processing product ${product.id}:`, error)
+          return product // Return the original product without variants if there's an error
+        }
+      }),
+    )
+
+    return productsWithVariants
+  } catch (error) {
+    console.error("Error fetching all products with variants:", error)
+    throw error
+  }
+}
+
+/**
+ * Maakt een nieuw contact aan of werkt een bestaand contact bij in ClickFunnels
+ * @param contact De contactgegevens
+ * @returns Een object met het resultaat van de operatie
+ */
 export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
   if (!API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
@@ -21,7 +241,7 @@ export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
     console.log(`Making upsert API request to ClickFunnels with data:`, JSON.stringify(contact, null, 2))
 
     // Use the upsert endpoint
-    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts/upsert`
+    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN_OLD}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts/upsert`
 
     console.log(`Using ClickFunnels upsert API URL: ${API_URL}`)
 
@@ -53,37 +273,65 @@ export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
 
     console.log(`Contact upsert data:`, JSON.stringify(contactData, null, 2))
 
-    // Create or update the contact in ClickFunnels
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_TOKEN}`,
-        Accept: "application/json",
-      },
-      body: JSON.stringify(contactData),
-    })
+    // Implementeer retry logic voor betere betrouwbaarheid
+    let lastError = null
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // Create or update the contact in ClickFunnels
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${API_TOKEN}`,
+            Accept: "application/json",
+          },
+          body: JSON.stringify(contactData),
+        })
 
-    const responseText = await response.text()
-    console.log(`ClickFunnels API upsert response status: ${response.status}`)
-    console.log(`ClickFunnels API upsert response body: ${responseText}`)
+        const responseText = await response.text()
+        console.log(`ClickFunnels API upsert response status: ${response.status}`)
+        console.log(`ClickFunnels API upsert response body: ${responseText}`)
 
-    if (!response.ok) {
-      console.error("ClickFunnels API upsert error:", responseText)
-      throw new Error(`ClickFunnels API upsert error: ${response.status}`)
+        if (!response.ok) {
+          console.error("ClickFunnels API upsert error:", responseText)
+          lastError = new Error(`ClickFunnels API upsert error: ${response.status}`)
+
+          // Als dit niet de laatste poging is, wacht dan en probeer opnieuw
+          if (attempt < MAX_RETRIES) {
+            console.log(`Retrying upsert (attempt ${attempt + 1} of ${MAX_RETRIES}) after ${RETRY_DELAY_MS}ms...`)
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+            continue
+          }
+
+          throw lastError
+        }
+
+        // The response is an array with a single contact object
+        const data = JSON.parse(responseText)
+        const contactId = data.id || (Array.isArray(data) && data.length > 0 ? data[0].id : null)
+
+        if (!contactId) {
+          throw new Error("No contact ID returned from upsert operation")
+        }
+
+        console.log(`Contact upserted with ID: ${contactId}`)
+
+        return { success: true, data, contactId }
+      } catch (error) {
+        lastError = error
+
+        // Als dit niet de laatste poging is, wacht dan en probeer opnieuw
+        if (attempt < MAX_RETRIES) {
+          console.log(`Retrying upsert (attempt ${attempt + 1} of ${MAX_RETRIES}) after ${RETRY_DELAY_MS}ms...`)
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+          continue
+        }
+      }
     }
 
-    // The response is an array with a single contact object
-    const data = JSON.parse(responseText)
-    const contactId = data.id || (Array.isArray(data) && data.length > 0 ? data[0].id : null)
-
-    if (!contactId) {
-      throw new Error("No contact ID returned from upsert operation")
-    }
-
-    console.log(`Contact upserted with ID: ${contactId}`)
-
-    return { success: true, data, contactId }
+    // Als we hier komen, zijn alle pogingen mislukt
+    console.error("All upsert attempts failed:", lastError)
+    return { success: false, error: String(lastError) }
   } catch (error) {
     console.error("Error upserting ClickFunnels contact:", error)
     return { success: false, error: String(error) }
@@ -134,7 +382,7 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
     const courseId = typeof enrollment.course_id === "string" ? enrollment.course_id : enrollment.course_id.toString()
 
     // URL voor het aanmaken van een enrollment
-    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/courses/${courseId}/enrollments`
+    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN_OLD}.myclickfunnels.com/api/v2/courses/${courseId}/enrollments`
 
     console.log(`Using ClickFunnels Enrollment API URL: ${API_URL}`)
 
@@ -150,46 +398,75 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
 
     console.log(`Enrollment data:`, JSON.stringify(enrollmentData, null, 2))
 
-    // Create the enrollment in ClickFunnels
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_TOKEN}`,
-        Accept: "application/json",
-      },
-      body: JSON.stringify(enrollmentData),
-    })
-
-    const responseText = await response.text()
-    console.log(`ClickFunnels Enrollment API response status: ${response.status}`)
-    console.log(`ClickFunnels Enrollment API response body: ${responseText}`)
-
-    if (!response.ok) {
-      console.error("ClickFunnels Enrollment API error:", responseText)
-
-      // Try to parse the error response for more details
+    // Implementeer retry logic voor betere betrouwbaarheid
+    let lastError = null
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const errorData = JSON.parse(responseText)
-        console.error("Detailed enrollment error:", errorData)
+        // Create the enrollment in ClickFunnels
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${API_TOKEN}`,
+            Accept: "application/json",
+          },
+          body: JSON.stringify(enrollmentData),
+        })
 
-        // Check if there's a specific error message we can handle
-        if (errorData.errors && errorData.errors.length > 0) {
-          const errorMessages = errorData.errors
-            .map((err: any) => err.detail || err.message || JSON.stringify(err))
-            .join(", ")
-          throw new Error(`ClickFunnels Enrollment API error: ${errorMessages}`)
+        const responseText = await response.text()
+        console.log(`ClickFunnels Enrollment API response status: ${response.status}`)
+        console.log(`ClickFunnels Enrollment API response body: ${responseText}`)
+
+        if (!response.ok) {
+          console.error("ClickFunnels Enrollment API error:", responseText)
+
+          // Try to parse the error response for more details
+          try {
+            const errorData = JSON.parse(responseText)
+            console.error("Detailed enrollment error:", errorData)
+
+            // Check if there's a specific error message we can handle
+            if (errorData.errors && errorData.errors.length > 0) {
+              const errorMessages = errorData.errors
+                .map((err: any) => err.detail || err.message || JSON.stringify(err))
+                .join(", ")
+              lastError = new Error(`ClickFunnels Enrollment API error: ${errorMessages}`)
+            } else {
+              lastError = new Error(`ClickFunnels Enrollment API error: ${response.status}`)
+            }
+          } catch (parseError) {
+            // If we can't parse the error, just continue with the original error
+            console.error("Could not parse error response:", parseError)
+            lastError = new Error(`ClickFunnels Enrollment API error: ${response.status}`)
+          }
+
+          // Als dit niet de laatste poging is, wacht dan en probeer opnieuw
+          if (attempt < MAX_RETRIES) {
+            console.log(`Retrying enrollment (attempt ${attempt + 1} of ${MAX_RETRIES}) after ${RETRY_DELAY_MS}ms...`)
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+            continue
+          }
+
+          throw lastError
         }
-      } catch (parseError) {
-        // If we can't parse the error, just continue with the original error
-        console.error("Could not parse error response:", parseError)
-      }
 
-      throw new Error(`ClickFunnels Enrollment API error: ${response.status}`)
+        const data = JSON.parse(responseText)
+        return { success: true, data, alreadyEnrolled: false }
+      } catch (error) {
+        lastError = error
+
+        // Als dit niet de laatste poging is, wacht dan en probeer opnieuw
+        if (attempt < MAX_RETRIES) {
+          console.log(`Retrying enrollment (attempt ${attempt + 1} of ${MAX_RETRIES}) after ${RETRY_DELAY_MS}ms...`)
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+          continue
+        }
+      }
     }
 
-    const data = JSON.parse(responseText)
-    return { success: true, data, alreadyEnrolled: false }
+    // Als we hier komen, zijn alle pogingen mislukt
+    console.error("All enrollment attempts failed:", lastError)
+    return { success: false, error: String(lastError) }
   } catch (error) {
     console.error("Error creating ClickFunnels enrollment:", error)
     return { success: false, error: String(error) }
@@ -205,7 +482,7 @@ export async function getContactEnrollments(contactId: number, courseId: string 
     console.log(`Checking enrollments for contact ID: ${contactId} in course ID: ${courseId}`)
 
     // URL voor het ophalen van enrollments
-    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/courses/${courseId}/enrollments?filter[contact_id]=${contactId}`
+    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN_OLD}.myclickfunnels.com/api/v2/courses/${courseId}/enrollments?filter[contact_id]=${contactId}`
 
     console.log(`Using ClickFunnels Enrollment API URL: ${API_URL}`)
 
@@ -216,6 +493,7 @@ export async function getContactEnrollments(contactId: number, courseId: string 
         Authorization: `Bearer ${API_TOKEN}`,
         Accept: "application/json",
       },
+      cache: "no-store",
     })
 
     const responseText = await response.text()
@@ -254,4 +532,60 @@ export async function trackEnrollment(
   enrollmentTracker.set(key, true)
   console.log(`Tracking new enrollment for session ${sessionId}, contact ${contactId}, course ${courseId}`)
   return true
+}
+
+/**
+ * Haalt een contact op uit ClickFunnels op basis van e-mailadres
+ * @param email Het e-mailadres van het contact
+ * @returns Een object met het resultaat van de operatie
+ */
+export async function getContactByEmail(email: string) {
+  if (!API_TOKEN) {
+    throw new Error("ClickFunnels API token is niet geconfigureerd")
+  }
+
+  if (!CLICKFUNNELS_WORKSPACE_ID) {
+    throw new Error("ClickFunnels workspace ID is niet geconfigureerd")
+  }
+
+  try {
+    console.log(`Getting contact by email: ${email}`)
+
+    // URL voor het ophalen van een contact op basis van e-mailadres
+    const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN_OLD}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/contacts?filter[email_address]=${encodeURIComponent(email)}`
+
+    console.log(`Using ClickFunnels API URL: ${API_URL}`)
+
+    // Get contact from ClickFunnels
+    const response = await fetch(API_URL, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${API_TOKEN}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    })
+
+    const responseText = await response.text()
+    console.log(`ClickFunnels API response status: ${response.status}`)
+
+    if (!response.ok) {
+      console.error("ClickFunnels API error:", responseText)
+      throw new Error(`ClickFunnels API error: ${response.status}`)
+    }
+
+    const data = JSON.parse(responseText)
+
+    // Check if any contacts were found
+    if (Array.isArray(data) && data.length > 0) {
+      console.log(`Found contact with ID: ${data[0].id}`)
+      return { success: true, data: data[0], contactId: data[0].id }
+    } else {
+      console.log(`No contact found with email: ${email}`)
+      return { success: false, error: "Contact not found" }
+    }
+  } catch (error) {
+    console.error("Error getting ClickFunnels contact:", error)
+    return { success: false, error: String(error) }
+  }
 }

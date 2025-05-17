@@ -4,8 +4,12 @@ import { stripe } from "./stripe" // Import stripe
 import { trackEnrollment } from "./enrollment-tracker" // Import trackEnrollment
 import { createCourseEnrollment, getContactEnrollments } from "./enrollment" // Import enrollment functions
 import { getProductById } from "./products" // Import getProductById
-import { upsertClickFunnelsContact } from "./clickfunnels" // Import upsertClickFunnelsContact
+import { upsertClickFunnelsContact, getContactByEmail } from "./clickfunnels" // Import upsertClickFunnelsContact
 import type { CompanyDetails } from "./types"
+
+// Constanten voor betere leesbaarheid en onderhoud
+const MAX_ENROLLMENT_ATTEMPTS = 3
+const RETRY_DELAY_MS = 1000
 
 // Implementeer de createCheckoutSession functie
 export async function createCheckoutSession({
@@ -57,6 +61,11 @@ export async function createCheckoutSession({
     }
     if (product.metadata?.kahunas_package) {
       metadata.kahunasPackage = product.metadata.kahunas_package
+    }
+
+    // Voeg cursus IDs toe aan metadata als ze bestaan
+    if (product.metadata?.clickfunnels_course_ids && Array.isArray(product.metadata.clickfunnels_course_ids)) {
+      metadata.clickfunnels_course_ids = JSON.stringify(product.metadata.clickfunnels_course_ids)
     }
 
     // Voeg bedrijfsgegevens toe aan metadata als ze bestaan
@@ -130,80 +139,108 @@ export async function enrollUserInCourses(
 
   console.log(`Enrolling contact ${contactId} in ${courseIds.length} courses...`)
 
-  // Process each course enrollment sequentially
-  for (const courseId of courseIds) {
-    try {
-      // Controleer eerst of de gebruiker al is ingeschreven voor deze cursus
-      const existingEnrollments = await getContactEnrollments(contactId, courseId)
+  // Gebruik Promise.all voor parallelle verwerking van voorcontroles
+  const enrollmentChecks = await Promise.all(
+    courseIds.map(async (courseId) => {
+      try {
+        // Controleer eerst of de gebruiker al is ingeschreven voor deze cursus
+        const existingEnrollments = await getContactEnrollments(contactId, courseId)
+        const isAlreadyEnrolled =
+          existingEnrollments.success && existingEnrollments.data && existingEnrollments.data.length > 0
 
-      if (existingEnrollments.success && existingEnrollments.data && existingEnrollments.data.length > 0) {
-        console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping enrollment.`)
-        alreadyEnrolledCourses.push(courseId)
-        continue
+        // Controleer of deze inschrijving al is verwerkt
+        const canTrackEnrollment = await trackEnrollment(sessionId, contactId, courseId)
+
+        return {
+          courseId,
+          isAlreadyEnrolled,
+          canTrackEnrollment,
+        }
+      } catch (error) {
+        console.error(`Error checking enrollment for course ${courseId}:`, error)
+        return {
+          courseId,
+          isAlreadyEnrolled: false,
+          canTrackEnrollment: false,
+          error,
+        }
       }
+    }),
+  )
 
-      // Check if this enrollment has already been processed in this session
-      if (await trackEnrollment(sessionId, contactId, courseId)) {
-        console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
+  // Verwerk de resultaten van de voorcontroles
+  for (const check of enrollmentChecks) {
+    const { courseId, isAlreadyEnrolled, canTrackEnrollment, error } = check
 
-        // Try multiple times with different approaches if needed
-        let enrollmentSuccess = false
-        let attempts = 0
-        const maxAttempts = 3
+    if (error) {
+      console.error(`Error in pre-check for course ${courseId}:`, error)
+      failedCourses.push(courseId)
+      continue
+    }
 
-        while (!enrollmentSuccess && attempts < maxAttempts) {
-          attempts++
-          console.log(`Enrollment attempt ${attempts} of ${maxAttempts} for course ${courseId}`)
+    if (isAlreadyEnrolled) {
+      console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping enrollment.`)
+      alreadyEnrolledCourses.push(courseId)
+      continue
+    }
 
-          try {
-            const enrollmentResult = await createCourseEnrollment({
-              contact_id: contactId,
-              course_id: courseId,
-              origination_source_type: "stripe_checkout",
-              origination_source_id: 1,
-            })
+    if (!canTrackEnrollment) {
+      console.log(
+        `Enrollment for session ${sessionId} and course ${courseId} already processed or will be handled by webhook. Skipping.`,
+      )
+      continue
+    }
 
-            console.log(`Attempt ${attempts} result for course ${courseId}:`, enrollmentResult)
+    // Probeer de inschrijving te maken
+    console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
 
-            if (enrollmentResult.success) {
-              if (enrollmentResult.alreadyEnrolled) {
-                // User is already enrolled, add to alreadyEnrolledCourses
-                enrollmentSuccess = true
-                console.log(`Contact ${contactId} is already enrolled in course ${courseId}`)
-                alreadyEnrolledCourses.push(courseId)
-              } else {
-                // New enrollment successful
-                enrollmentSuccess = true
-                console.log(`Successfully enrolled contact in course ${courseId} on attempt ${attempts}`)
-                enrolledCourses.push(courseId)
-              }
-              break
-            } else {
-              console.error(
-                `Failed to enroll contact in course ${courseId} on attempt ${attempts}:`,
-                enrollmentResult.error,
-              )
-              // Wait a bit before retrying
-              await new Promise((resolve) => setTimeout(resolve, 1000))
-            }
-          } catch (enrollError) {
-            console.error(`Error during enrollment attempt ${attempts} for course ${courseId}:`, enrollError)
-            // Wait a bit before retrying
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+    let enrollmentSuccess = false
+    let attempts = 0
+
+    while (!enrollmentSuccess && attempts < MAX_ENROLLMENT_ATTEMPTS) {
+      attempts++
+      console.log(`Enrollment attempt ${attempts} of ${MAX_ENROLLMENT_ATTEMPTS} for course ${courseId}`)
+
+      try {
+        const enrollmentResult = await createCourseEnrollment({
+          contact_id: contactId,
+          course_id: courseId,
+          origination_source_type: "stripe_checkout",
+          origination_source_id: 1,
+        })
+
+        console.log(`Attempt ${attempts} result for course ${courseId}:`, enrollmentResult)
+
+        if (enrollmentResult.success) {
+          if (enrollmentResult.alreadyEnrolled) {
+            // User is already enrolled, add to alreadyEnrolledCourses
+            enrollmentSuccess = true
+            console.log(`Contact ${contactId} is already enrolled in course ${courseId}`)
+            alreadyEnrolledCourses.push(courseId)
+          } else {
+            // New enrollment successful
+            enrollmentSuccess = true
+            console.log(`Successfully enrolled contact in course ${courseId} on attempt ${attempts}`)
+            enrolledCourses.push(courseId)
           }
+          break
+        } else {
+          console.error(
+            `Failed to enroll contact in course ${courseId} on attempt ${attempts}:`,
+            enrollmentResult.error,
+          )
+          // Wait a bit before retrying
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
         }
-
-        if (!enrollmentSuccess) {
-          console.error(`All ${maxAttempts} enrollment attempts failed for course ${courseId}`)
-          failedCourses.push(courseId)
-        }
-      } else {
-        console.log(
-          `Enrollment for session ${sessionId} and course ${courseId} already processed or will be handled by webhook. Skipping.`,
-        )
+      } catch (enrollError) {
+        console.error(`Error during enrollment attempt ${attempts} for course ${courseId}:`, enrollError)
+        // Wait a bit before retrying
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
       }
-    } catch (error) {
-      console.error(`Error enrolling in course ${courseId}:`, error)
+    }
+
+    if (!enrollmentSuccess) {
+      console.error(`All ${MAX_ENROLLMENT_ATTEMPTS} enrollment attempts failed for course ${courseId}`)
       failedCourses.push(courseId)
     }
   }
@@ -220,7 +257,9 @@ export async function enrollUserInCourses(
 export async function handleSuccessfulPayment(sessionId: string) {
   try {
     // Haal de Stripe Checkout Session op
-    const session = await stripe.checkout.sessions.retrieve(sessionId)
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ["invoice", "customer"],
+    })
 
     if (!session) {
       throw new Error("Sessie niet gevonden")
@@ -247,6 +286,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
       stripeCustomerId,
       email: metadataEmail,
       enrollment_handled_by,
+      clickfunnels_course_ids: courseIdsJson,
     } = metadata || {}
 
     // Use email from metadata if session email is null
@@ -256,7 +296,19 @@ export async function handleSuccessfulPayment(sessionId: string) {
 
     // Haal het product op om de cursus IDs te krijgen
     const product = productId ? getProductById(productId as string) : undefined
-    const courseIds = product?.metadata?.clickfunnels_course_ids || []
+    let courseIds: string[] = product?.metadata?.clickfunnels_course_ids || []
+
+    // Probeer courseIds uit JSON te parsen als het beschikbaar is
+    if (courseIdsJson) {
+      try {
+        const parsedCourseIds = JSON.parse(courseIdsJson as string)
+        if (Array.isArray(parsedCourseIds)) {
+          courseIds = parsedCourseIds
+        }
+      } catch (e) {
+        console.error("Error parsing course IDs from JSON:", e)
+      }
+    }
 
     // Voor backward compatibility, voeg het oude courseId toe als het niet al in de lijst staat
     if (courseId && !courseIds.includes(courseId as string)) {
@@ -279,7 +331,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
       productName: productName as string,
       productId: productId as string,
       kahunasPackage: kahunasPackage as string,
-      stripeCustomerId: stripeCustomerId || (customer as string),
+      stripeCustomerId: stripeCustomerId || (typeof customer === "string" ? customer : customer?.id),
       hasEnrollment: false,
       courseIds: courseIds,
       enrolledCourses: [] as string[],
@@ -293,7 +345,9 @@ export async function handleSuccessfulPayment(sessionId: string) {
     // Haal factuurgegevens op als die beschikbaar zijn
     if (session.invoice) {
       try {
-        const invoice = await stripe.invoices.retrieve(session.invoice as string)
+        const invoice =
+          typeof session.invoice === "string" ? await stripe.invoices.retrieve(session.invoice) : session.invoice
+
         response.invoiceUrl = invoice.hosted_invoice_url || null
         response.invoicePdf = invoice.invoice_pdf || null
 
@@ -314,8 +368,10 @@ export async function handleSuccessfulPayment(sessionId: string) {
       try {
         if (customer) {
           // Create invoice item
+          const customerId = typeof customer === "string" ? customer : customer.id
+
           const invoiceItem = await stripe.invoiceItems.create({
-            customer: customer as string,
+            customer: customerId,
             amount: session.amount_total || 0,
             currency: session.currency || "eur",
             description: `Betaling voor ${productName || "dienst"}`,
@@ -323,7 +379,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
 
           // Create and finalize invoice
           const invoice = await stripe.invoices.create({
-            customer: customer as string,
+            customer: customerId,
             auto_advance: true,
             collection_method: "charge_automatically",
             description: `Factuur voor ${productName || "dienst"}`,
@@ -366,6 +422,16 @@ export async function handleSuccessfulPayment(sessionId: string) {
           throw new Error("Email is required for upserting a contact")
         }
 
+        // Controleer eerst of het contact al bestaat
+        const existingContact = await getContactByEmail(customerEmail)
+
+        // Als het contact al bestaat, gebruik dan het bestaande contact ID
+        if (existingContact.success && existingContact.contactId) {
+          contactId = existingContact.contactId
+          console.log(`Found existing contact with ID: ${contactId}`)
+        }
+
+        // Upsert het contact (update of maak nieuw)
         const upsertResult = await upsertClickFunnelsContact({
           email: customerEmail,
           first_name: firstName as string,
@@ -380,7 +446,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
             payment_date: new Date().toISOString(),
             payment_method: "Stripe",
             stripe_session_id: sessionId,
-            stripe_customer_id: stripeCustomerId || (customer as string) || "",
+            stripe_customer_id: stripeCustomerId || (typeof customer === "string" ? customer : customer?.id) || "",
             birth_date: birthDate || "",
             kahunas_package: kahunasPackage || productId || "",
             source: "checkout_payment",
@@ -442,5 +508,28 @@ export async function handleSuccessfulPayment(sessionId: string) {
   } catch (error: any) {
     console.error("Error in handleSuccessfulPayment:", error)
     return { success: false, error: "Er is een fout opgetreden bij het verwerken van je betaling." }
+  }
+}
+
+/**
+ * Controleert de status van een betaling
+ * @param sessionId Het ID van de Stripe checkout sessie
+ * @returns Een object met de status van de betaling
+ */
+export async function checkPaymentStatus(sessionId: string) {
+  try {
+    // Haal de sessie op van Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId)
+
+    return {
+      success: true,
+      status: session.payment_status,
+      customerEmail: session.customer_email,
+      amount: session.amount_total,
+      currency: session.currency,
+    }
+  } catch (error: any) {
+    console.error("Error checking payment status:", error)
+    return { success: false, error: error.message || "Er is een fout opgetreden" }
   }
 }
