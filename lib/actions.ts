@@ -1,10 +1,12 @@
+"use server"
+
 import { stripe } from "./stripe" // Import stripe
 import { trackEnrollment, createCourseEnrollment, getContactEnrollments } from "./enrollment" // Import enrollment functions
 import { getProductById } from "./products" // Import getProductById
 import { upsertClickFunnelsContact } from "./clickfunnels" // Import upsertClickFunnelsContact
 
 // Voeg deze functie toe aan actions.ts
-async function enrollUserInCourses(
+export async function enrollUserInCourses(
   contactId: number,
   courseIds: string[],
   sessionId: string,
@@ -107,6 +109,12 @@ async function enrollUserInCourses(
     enrolledCourses,
     failedCourses,
   }
+}
+
+// Zorg ervoor dat alle server actions async zijn
+export async function createCheckoutSession(data: any) {
+  // Implementatie hier
+  return { sessionId: "test_session_id" }
 }
 
 // Update de handleSuccessfulPayment functie om meerdere cursussen te ondersteunen
