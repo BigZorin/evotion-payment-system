@@ -9,7 +9,8 @@ export const products: Product[] = [
     features: ["3 coaching sessies", "Persoonlijk actieplan", "Email ondersteuning", "Toegang tot online materialen"],
     metadata: {
       clickfunnels_membership_level: "basic",
-      kahunas_package: "basic-coaching", // Specifiek Kahunas package ID
+      clickfunnels_course_ids: ["basic-course-1"], // Voorbeeld course ID
+      kahunas_package: "basic-coaching",
     },
   },
   {
@@ -26,7 +27,8 @@ export const products: Product[] = [
     ],
     metadata: {
       clickfunnels_membership_level: "premium",
-      kahunas_package: "premium-coaching", // Specifiek Kahunas package ID
+      clickfunnels_course_ids: ["premium-course-1", "premium-course-2"], // Meerdere cursussen
+      kahunas_package: "premium-coaching",
     },
   },
   {
@@ -44,7 +46,8 @@ export const products: Product[] = [
     ],
     metadata: {
       clickfunnels_membership_level: "vip",
-      kahunas_package: "vip-coaching", // Specifiek Kahunas package ID
+      clickfunnels_course_ids: ["vip-course-1", "vip-course-2", "vip-course-3"], // Nog meer cursussen
+      kahunas_package: "vip-coaching",
     },
   },
   {
@@ -62,12 +65,26 @@ export const products: Product[] = [
     ],
     metadata: {
       clickfunnels_membership_level: "vetverlies",
-      clickfunnels_course_id: "eWbLVk", // Course ID voor het 12-weken schema
-      kahunas_package: "12-week-fat-loss", // Specifiek Kahunas package ID
+      clickfunnels_course_ids: ["eWbLVk", "vgDnxN", "JMaGxK"], // Toegevoegd de nieuwe course IDs
+      kahunas_package: "12-week-fat-loss",
     },
   },
 ]
 
 export function getProductById(id: string): Product | undefined {
   return products.find((product) => product.id === id)
+}
+
+// Nieuwe functie om een overzicht te krijgen van product-cursus toewijzingen
+export function getProductCourseMapping(): Record<string, { productName: string; courses: string[] }> {
+  const mapping: Record<string, { productName: string; courses: string[] }> = {}
+
+  products.forEach((product) => {
+    mapping[product.id] = {
+      productName: product.name,
+      courses: product.metadata?.clickfunnels_course_ids || [],
+    }
+  })
+
+  return mapping
 }

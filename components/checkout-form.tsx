@@ -105,9 +105,9 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg border border-[#1e1839]/10 shadow-md">
+    <form onSubmit={handleSubmit} className="space-y-6 bg-[#1e1839]/80 p-6 rounded-lg border border-white/10 shadow-md">
       {error && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive" className="mb-4 bg-red-900/30 border-red-500/30 text-white">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Fout</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
@@ -116,8 +116,8 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
 
       <div className="space-y-4">
         <div>
-          <Label htmlFor="email" className="text-[#1e1839]">
-            E-mailadres <span className="text-red-500">*</span>
+          <Label htmlFor="email" className="text-white">
+            E-mailadres <span className="text-red-400">*</span>
           </Label>
           <Input
             id="email"
@@ -127,14 +127,14 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             value={formData.email}
             onChange={handleChange}
             placeholder="jouw@email.nl"
-            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+            className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="firstName" className="text-[#1e1839]">
-              Voornaam <span className="text-red-500">*</span>
+            <Label htmlFor="firstName" className="text-white">
+              Voornaam <span className="text-red-400">*</span>
             </Label>
             <Input
               id="firstName"
@@ -142,12 +142,12 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
               required
               value={formData.firstName}
               onChange={handleChange}
-              className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+              className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
             />
           </div>
           <div>
-            <Label htmlFor="lastName" className="text-[#1e1839]">
-              Achternaam <span className="text-red-500">*</span>
+            <Label htmlFor="lastName" className="text-white">
+              Achternaam <span className="text-red-400">*</span>
             </Label>
             <Input
               id="lastName"
@@ -155,13 +155,13 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
               required
               value={formData.lastName}
               onChange={handleChange}
-              className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+              className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
             />
           </div>
         </div>
 
         <div>
-          <Label htmlFor="phone" className="text-[#1e1839]">
+          <Label htmlFor="phone" className="text-white">
             Telefoonnummer
           </Label>
           <Input
@@ -171,12 +171,12 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             value={formData.phone}
             onChange={handleChange}
             placeholder="Bijv. 0612345678"
-            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+            className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
           />
         </div>
 
         <div>
-          <Label htmlFor="birthDate" className="text-[#1e1839]">
+          <Label htmlFor="birthDate" className="text-white">
             Geboortedatum
           </Label>
           <Input
@@ -185,7 +185,7 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             type="date"
             value={formData.birthDate}
             onChange={handleChange}
-            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+            className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
           />
         </div>
 
@@ -194,17 +194,18 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             id="isCompany"
             checked={isCompany}
             onCheckedChange={(checked) => setIsCompany(checked as boolean)}
+            className="border-white/50 data-[state=checked]:bg-white data-[state=checked]:text-[#1e1839]"
           />
-          <Label htmlFor="isCompany" className="text-[#1e1839]">
+          <Label htmlFor="isCompany" className="text-white">
             Ik betaal namens een bedrijf (factuur op bedrijfsnaam)
           </Label>
         </div>
 
         {isCompany && (
-          <div className="space-y-4 border-t border-[#1e1839]/10 pt-4 mt-4">
+          <div className="space-y-4 border-t border-white/10 pt-4 mt-4">
             <div>
-              <Label htmlFor="companyName" className="text-[#1e1839]">
-                Bedrijfsnaam <span className="text-red-500">*</span>
+              <Label htmlFor="companyName" className="text-white">
+                Bedrijfsnaam <span className="text-red-400">*</span>
               </Label>
               <Input
                 id="companyName"
@@ -212,12 +213,12 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
                 required={isCompany}
                 value={formData.companyName}
                 onChange={handleChange}
-                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
               />
             </div>
 
             <div>
-              <Label htmlFor="vatNumber" className="text-[#1e1839]">
+              <Label htmlFor="vatNumber" className="text-white">
                 BTW-nummer
               </Label>
               <Input
@@ -226,13 +227,13 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
                 value={formData.vatNumber}
                 onChange={handleChange}
                 placeholder="NL123456789B01"
-                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
               />
             </div>
 
             <div>
-              <Label htmlFor="address" className="text-[#1e1839]">
-                Adres <span className="text-red-500">*</span>
+              <Label htmlFor="address" className="text-white">
+                Adres <span className="text-red-400">*</span>
               </Label>
               <Input
                 id="address"
@@ -240,14 +241,14 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
                 required={isCompany}
                 value={formData.address}
                 onChange={handleChange}
-                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="postalCode" className="text-[#1e1839]">
-                  Postcode <span className="text-red-500">*</span>
+                <Label htmlFor="postalCode" className="text-white">
+                  Postcode <span className="text-red-400">*</span>
                 </Label>
                 <Input
                   id="postalCode"
@@ -255,12 +256,12 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
                   required={isCompany}
                   value={formData.postalCode}
                   onChange={handleChange}
-                  className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                  className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
                 />
               </div>
               <div>
-                <Label htmlFor="city" className="text-[#1e1839]">
-                  Plaats <span className="text-red-500">*</span>
+                <Label htmlFor="city" className="text-white">
+                  Plaats <span className="text-red-400">*</span>
                 </Label>
                 <Input
                   id="city"
@@ -268,7 +269,7 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
                   required={isCompany}
                   value={formData.city}
                   onChange={handleChange}
-                  className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                  className="bg-[#1e1839]/50 border-white/30 text-white focus:border-white focus:ring-white/30"
                 />
               </div>
             </div>
@@ -276,15 +277,15 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
         )}
       </div>
 
-      <div className="pt-4 border-t border-[#1e1839]/10">
+      <div className="pt-4 border-t border-white/10">
         <div className="mb-4">
-          <p className="text-[#1e1839] font-medium mb-2">Beschikbare betalingsmethoden:</p>
+          <p className="text-white font-medium mb-2">Beschikbare betalingsmethoden:</p>
           <div className="flex flex-wrap gap-2 items-center">
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
-              <span className="text-sm font-medium text-[#1e1839]">iDEAL</span>
+            <div className="bg-white/10 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-white">iDEAL</span>
             </div>
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
-              <span className="text-sm font-medium text-[#1e1839]">Creditcard</span>
+            <div className="bg-white/10 px-3 py-1 rounded-md flex items-center">
+              <span className="text-sm font-medium text-white">Creditcard</span>
             </div>
           </div>
         </div>
@@ -292,16 +293,16 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
 
       <Button
         type="submit"
-        className="w-full bg-[#1e1839] hover:bg-[#1e1839]/90 text-white transition-colors duration-300"
+        className="w-full bg-white hover:bg-white/90 text-[#1e1839] transition-colors duration-300"
         disabled={isLoading}
       >
         {isLoading ? "Bezig met laden..." : "Doorgaan naar betaling"}
       </Button>
 
-      <div className="text-center text-[#1e1839]/60 text-sm">
+      <div className="text-center text-white/60 text-sm">
         <p>Veilig betalen via Stripe. Je gegevens worden versleuteld verzonden.</p>
         {product.price < 100 && (
-          <p className="mt-2 text-amber-600">
+          <p className="mt-2 text-amber-300">
             <strong>Test Modus:</strong> Dit is een testbetaling van {(product.price / 100).toFixed(2)} euro.
           </p>
         )}

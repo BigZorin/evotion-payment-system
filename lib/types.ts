@@ -4,7 +4,12 @@ export interface Product {
   description: string
   price: number
   features: string[]
-  metadata?: Record<string, string>
+  metadata?: {
+    clickfunnels_membership_level?: string
+    clickfunnels_course_ids?: string[] // Array van course IDs
+    kahunas_package?: string
+    [key: string]: any
+  }
 }
 
 export interface CustomerData {

@@ -110,6 +110,26 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
       `Creating course enrollment for contact ID: ${enrollment.contact_id} in course ID: ${enrollment.course_id}`,
     )
 
+    // First, check if the contact is already enrolled in the course
+    const existingEnrollments = await getContactEnrollments(enrollment.contact_id, enrollment.course_id)
+
+    // If the contact is already enrolled, return success without creating a new enrollment
+    if (
+      existingEnrollments.success &&
+      existingEnrollments.data &&
+      existingEnrollments.data.courses_enrollments &&
+      existingEnrollments.data.courses_enrollments.length > 0
+    ) {
+      console.log(
+        `Contact ${enrollment.contact_id} is already enrolled in course ${enrollment.course_id}. Skipping enrollment.`,
+      )
+      return {
+        success: true,
+        data: existingEnrollments.data.courses_enrollments[0],
+        alreadyEnrolled: true,
+      }
+    }
+
     // Check if course_id is a string (like "eWbLVk") or a number
     const courseId = typeof enrollment.course_id === "string" ? enrollment.course_id : enrollment.course_id.toString()
 
@@ -169,7 +189,7 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
     }
 
     const data = JSON.parse(responseText)
-    return { success: true, data }
+    return { success: true, data, alreadyEnrolled: false }
   } catch (error) {
     console.error("Error creating ClickFunnels enrollment:", error)
     return { success: false, error: String(error) }
@@ -213,4 +233,20 @@ export async function getContactEnrollments(contactId: number, courseId: string 
     console.error("Error getting ClickFunnels enrollments:", error)
     return { success: false, error: String(error) }
   }
+}
+
+// Add a function to track enrollments to prevent duplicates
+const enrollmentTracker = new Map<string, boolean>()
+
+export function trackEnrollment(sessionId: string, contactId: number, courseId: string | number): boolean {
+  const key = `${sessionId}_${contactId}_${courseId}`
+
+  if (enrollmentTracker.has(key)) {
+    console.log(`Enrollment already processed for session ${sessionId}, contact ${contactId}, course ${courseId}`)
+    return false
+  }
+
+  enrollmentTracker.set(key, true)
+  console.log(`Tracking new enrollment for session ${sessionId}, contact ${contactId}, course ${courseId}`)
+  return true
 }

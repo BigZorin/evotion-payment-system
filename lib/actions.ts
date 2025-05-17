@@ -1,268 +1,115 @@
-"use server"
-import Stripe from "stripe"
-import { getProductById } from "./products"
-import { upsertClickFunnelsContact, createCourseEnrollment, getContactEnrollments } from "./clickfunnels"
+import { stripe } from "./stripe" // Import stripe
+import { trackEnrollment, createCourseEnrollment, getContactEnrollments } from "./enrollment" // Import enrollment functions
+import { getProductById } from "./products" // Import getProductById
+import { upsertClickFunnelsContact } from "./clickfunnels" // Import upsertClickFunnelsContact
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16",
-})
+// Voeg deze functie toe aan actions.ts
+async function enrollUserInCourses(
+  contactId: number,
+  courseIds: string[],
+  sessionId: string,
+): Promise<{
+  success: boolean
+  enrolledCourses: string[]
+  failedCourses: string[]
+}> {
+  const enrolledCourses: string[] = []
+  const failedCourses: string[] = []
 
-interface CompanyDetails {
-  name: string
-  vatNumber?: string
-  address?: string
-  postalCode?: string
-  city?: string
-}
+  if (!courseIds || courseIds.length === 0) {
+    console.log("No courses to enroll in")
+    return { success: true, enrolledCourses, failedCourses }
+  }
 
-interface CreateCheckoutSessionParams {
-  productId: string
-  customerEmail: string
-  customerFirstName: string
-  customerLastName: string
-  customerPhone?: string
-  customerBirthDate?: string
-  companyDetails?: CompanyDetails
-}
+  console.log(`Enrolling contact ${contactId} in ${courseIds.length} courses...`)
 
-export async function createCheckoutSession({
-  productId,
-  customerEmail,
-  customerFirstName,
-  customerLastName,
-  customerPhone,
-  customerBirthDate,
-  companyDetails,
-}: CreateCheckoutSessionParams) {
-  try {
-    console.log("Starting checkout session creation with params:", {
-      productId,
-      customerEmail,
-      customerFirstName,
-      customerLastName,
-      customerPhone,
-      customerBirthDate,
-      companyDetails: companyDetails ? "Present" : "Not present",
-    })
-
-    const product = getProductById(productId)
-
-    if (!product) {
-      console.error(`Product niet gevonden: ${productId}`)
-      throw new Error("Product niet gevonden")
-    }
-
-    console.log(`Product gevonden: ${product.name}, prijs: ${product.price}`)
-    console.log(`Product metadata:`, product.metadata)
-
-    // Controleer of de prijs niet te laag is (minimaal 50 cent voor Stripe)
-    if (product.price < 50) {
-      console.log("Prijs aangepast naar minimaal 50 cent voor Stripe")
-      product.price = 50 // Minimaal 50 cent voor Stripe
-    }
-
-    const customerName = `${customerFirstName} ${customerLastName}`.trim()
-
-    // Prepare customer data for ClickFunnels
-    const customerData = {
-      email: customerEmail,
-      firstName: customerFirstName,
-      lastName: customerLastName,
-      phone: customerPhone || "",
-      birthDate: customerBirthDate || "",
-      productId: product.id,
-      productName: product.name,
-      membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
-      courseId: product.metadata?.clickfunnels_course_id || "",
-      // Voeg hier eventueel een veld toe voor het Kahunas package
-      kahunasPackage: product.metadata?.kahunas_package || product.id,
-    }
-
-    console.log("Customer data prepared:", customerData)
-
-    // Zoek bestaande klant of maak een nieuwe aan
-    let customerId: string | undefined
-
+  // Process each course enrollment sequentially
+  for (const courseId of courseIds) {
     try {
-      // Zoek eerst of de klant al bestaat in Stripe
-      const customers = await stripe.customers.list({
-        email: customerEmail,
-        limit: 1,
-      })
+      // Check if this enrollment has already been processed
+      if (trackEnrollment(sessionId, contactId, courseId)) {
+        console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
 
-      if (customers.data.length > 0) {
-        // Gebruik bestaande klant
-        customerId = customers.data[0].id
-        console.log(`Bestaande Stripe klant gevonden: ${customerId}`)
+        // Try multiple times with different approaches if needed
+        let enrollmentSuccess = false
+        let attempts = 0
+        const maxAttempts = 3
 
-        // Update klantgegevens
-        await stripe.customers.update(customerId, {
-          name: customerName,
-          phone: customerPhone || undefined,
-          metadata: {
-            first_name: customerFirstName,
-            last_name: customerLastName,
-            birth_date: customerBirthDate || "",
-            source: "website_payment",
-            productId: product.id,
-            productName: product.name,
-            membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
-            courseId: product.metadata?.clickfunnels_course_id || "",
-            kahunasPackage: product.metadata?.kahunas_package || product.id,
-          },
-        })
-        console.log(`Klantgegevens bijgewerkt voor: ${customerId}`)
+        while (!enrollmentSuccess && attempts < maxAttempts) {
+          attempts++
+          console.log(`Enrollment attempt ${attempts} of ${maxAttempts} for course ${courseId}`)
+
+          try {
+            const enrollmentResult = await createCourseEnrollment({
+              contact_id: contactId,
+              course_id: courseId,
+              origination_source_type: "stripe_checkout",
+              origination_source_id: 1,
+            })
+
+            console.log(`Attempt ${attempts} result for course ${courseId}:`, enrollmentResult)
+
+            if (enrollmentResult.success) {
+              enrollmentSuccess = true
+              console.log(`Successfully enrolled contact in course ${courseId} on attempt ${attempts}`)
+              enrolledCourses.push(courseId)
+              break
+            } else if (enrollmentResult.alreadyEnrolled) {
+              // User is already enrolled, count as success
+              enrollmentSuccess = true
+              console.log(`Contact ${contactId} is already enrolled in course ${courseId}`)
+              enrolledCourses.push(courseId)
+              break
+            } else {
+              console.error(
+                `Failed to enroll contact in course ${courseId} on attempt ${attempts}:`,
+                enrollmentResult.error,
+              )
+              // Wait a bit before retrying
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+            }
+          } catch (enrollError) {
+            console.error(`Error during enrollment attempt ${attempts} for course ${courseId}:`, enrollError)
+            // Wait a bit before retrying
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+        }
+
+        if (!enrollmentSuccess) {
+          console.error(`All ${maxAttempts} enrollment attempts failed for course ${courseId}`)
+          failedCourses.push(courseId)
+        }
       } else {
-        // Maak een nieuwe klant aan
-        const newCustomer = await stripe.customers.create({
-          email: customerEmail,
-          name: customerName,
-          phone: customerPhone || undefined,
-          metadata: {
-            first_name: customerFirstName,
-            last_name: customerLastName,
-            birth_date: customerBirthDate || "",
-            source: "website_payment",
-            productId: product.id,
-            productName: product.name,
-            membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
-            courseId: product.metadata?.clickfunnels_course_id || "",
-            kahunasPackage: product.metadata?.kahunas_package || product.id,
-          },
-        })
-        customerId = newCustomer.id
-        console.log(`Nieuwe Stripe klant aangemaakt: ${customerId}`)
+        console.log(
+          `Enrollment for session ${sessionId} and course ${courseId} already processed or will be handled by webhook. Skipping.`,
+        )
+
+        // Check if the user is already enrolled
+        const existingEnrollments = await getContactEnrollments(contactId, courseId)
+        if (
+          existingEnrollments.success &&
+          existingEnrollments.data &&
+          existingEnrollments.data.courses_enrollments &&
+          existingEnrollments.data.courses_enrollments.length > 0
+        ) {
+          console.log(`Contact ${contactId} is already enrolled in course ${courseId}.`)
+          enrolledCourses.push(courseId)
+        }
       }
     } catch (error) {
-      console.error("Fout bij het aanmaken/ophalen van Stripe klant:", error)
-      // We gaan door met de checkout zelfs als het aanmaken van de klant mislukt
+      console.error(`Error enrolling in course ${courseId}:`, error)
+      failedCourses.push(courseId)
     }
+  }
 
-    // Als er bedrijfsgegevens zijn, voeg deze toe aan de klant en metadata
-    if (companyDetails) {
-      // Voeg bedrijfsgegevens toe aan de klant
-      if (customerId) {
-        await stripe.customers.update(customerId, {
-          name: companyDetails.name, // Gebruik bedrijfsnaam als klantnaam
-          metadata: {
-            first_name: customerFirstName,
-            last_name: customerLastName,
-            birth_date: customerBirthDate || "",
-            company_name: companyDetails.name,
-            vat_number: companyDetails.vatNumber || "",
-            address: companyDetails.address || "",
-            postal_code: companyDetails.postalCode || "",
-            city: companyDetails.city || "",
-            is_company: "true",
-            productId: product.id,
-            productName: product.name,
-            membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
-            courseId: product.metadata?.clickfunnels_course_id || "",
-            kahunasPackage: product.metadata?.kahunas_package || product.id,
-          },
-        })
-      }
-
-      // Voeg bedrijfsgegevens toe aan de customerData
-      customerData.companyName = companyDetails.name
-      customerData.vatNumber = companyDetails.vatNumber || ""
-      customerData.address = companyDetails.address || ""
-      customerData.postalCode = companyDetails.postalCode || ""
-      customerData.city = companyDetails.city || ""
-      customerData.isCompany = "true"
-    }
-
-    // Definieer alleen de betaalmethoden die we willen ondersteunen: iDEAL en card
-    // iDEAL staat vooraan zodat het als eerste wordt getoond
-    const paymentMethodTypes = ["ideal", "card"]
-
-    console.log("Creating Stripe checkout session...")
-
-    // Create Stripe checkout session
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: paymentMethodTypes,
-      customer: customerId, // Gebruik de klant ID als we die hebben
-      line_items: [
-        {
-          price_data: {
-            currency: "eur",
-            product_data: {
-              name: product.name,
-              description: product.description,
-              metadata: {
-                productId: product.id,
-                ...product.metadata,
-              },
-            },
-            unit_amount: product.price,
-            tax_behavior: "inclusive", // BTW is inbegrepen in de prijs
-          },
-          quantity: 1,
-        },
-      ],
-      // Schakel automatische belastingberekening in
-      automatic_tax: {
-        enabled: true,
-      },
-      // Voeg customer_update toe om het adres op te slaan bij de klant
-      customer_update: {
-        address: "auto",
-        name: "auto",
-      },
-      mode: "payment",
-      customer_email: customerId ? undefined : customerEmail, // Alleen gebruiken als we geen klant ID hebben
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || "https://betalen.evotion-coaching.nl"}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || "https://betalen.evotion-coaching.nl"}/checkout/${productId}`,
-      metadata: {
-        email: customerEmail,
-        first_name: customerFirstName,
-        last_name: customerLastName,
-        name: customerName,
-        phone: customerPhone || "",
-        birth_date: customerBirthDate || "",
-        productId: product.id,
-        productName: product.name,
-        membershipLevel: product.metadata?.clickfunnels_membership_level || "basic",
-        courseId: product.metadata?.clickfunnels_course_id || "",
-        kahunasPackage: product.metadata?.kahunas_package || product.id,
-        stripeCustomerId: customerId, // Bewaar de klant ID in de metadata
-      },
-      // Factuurgegevens inschakelen
-      invoice_creation: {
-        enabled: true,
-      },
-      // Optioneel: Voeg bedrijfsgegevens toe aan de factuur
-      payment_intent_data: {
-        metadata: {
-          product_name: product.name,
-          product_id: product.id,
-          customer_email: customerEmail,
-          customer_name: customerName,
-          kahunas_package: product.metadata?.kahunas_package || product.id,
-        },
-      },
-      // Locale instellen op Nederlands
-      locale: "nl",
-      // Verzendadres uitschakelen (niet nodig voor digitale producten)
-      shipping_address_collection: undefined,
-      // Telefoon uitschakelen (we hebben het al verzameld)
-      phone_number_collection: {
-        enabled: false,
-      },
-      // Adres verzamelen voor belastingberekening
-      billing_address_collection: "required",
-    })
-
-    console.log(`Checkout session created: ${session.id}`)
-    return { sessionId: session.id }
-  } catch (error) {
-    console.error("Error in createCheckoutSession:", error)
-    throw error // Re-throw the error to be handled by the client
+  return {
+    success: failedCourses.length === 0,
+    enrolledCourses,
+    failedCourses,
   }
 }
 
-// Verbeterde handleSuccessfulPayment functie
+// Update de handleSuccessfulPayment functie om meerdere cursussen te ondersteunen
 export async function handleSuccessfulPayment(sessionId: string) {
   try {
     // Haal de Stripe Checkout Session op
@@ -288,17 +135,28 @@ export async function handleSuccessfulPayment(sessionId: string) {
       birth_date: birthDate,
       productId,
       productName,
-      courseId,
+      courseId, // Oude single course ID (voor backward compatibility)
       kahunasPackage,
       stripeCustomerId,
       email: metadataEmail,
+      enrollment_handled_by,
     } = metadata || {}
 
     // Use email from metadata if session email is null
     const customerEmail = sessionEmail || metadataEmail || ""
 
     console.log("Session metadata:", metadata)
-    console.log("Course ID from metadata:", courseId)
+
+    // Haal het product op om de cursus IDs te krijgen
+    const product = productId ? getProductById(productId as string) : undefined
+    const courseIds = product?.metadata?.clickfunnels_course_ids || []
+
+    // Voor backward compatibility, voeg het oude courseId toe als het niet al in de lijst staat
+    if (courseId && !courseIds.includes(courseId as string)) {
+      courseIds.push(courseId as string)
+    }
+
+    console.log("Course IDs for enrollment:", courseIds)
     console.log("Using email:", customerEmail)
 
     // Basis response
@@ -316,7 +174,9 @@ export async function handleSuccessfulPayment(sessionId: string) {
       kahunasPackage: kahunasPackage as string,
       stripeCustomerId: stripeCustomerId || (customer as string),
       hasEnrollment: false,
-      courseId: courseId as string,
+      courseIds: courseIds,
+      enrolledCourses: [] as string[],
+      failedCourses: [] as string[],
       error: null as string | null,
       invoiceUrl: null as string | null,
       invoicePdf: null as string | null,
@@ -328,8 +188,52 @@ export async function handleSuccessfulPayment(sessionId: string) {
         const invoice = await stripe.invoices.retrieve(session.invoice as string)
         response.invoiceUrl = invoice.hosted_invoice_url || null
         response.invoicePdf = invoice.invoice_pdf || null
+
+        // Ensure invoice is sent by email
+        if (invoice.status === "paid" && !invoice.post_payment_credit_notes_amount) {
+          try {
+            await stripe.invoices.sendInvoice(invoice.id)
+            console.log(`Invoice ${invoice.id} sent to ${customerEmail}`)
+          } catch (emailError) {
+            console.error("Error sending invoice email:", emailError)
+          }
+        }
       } catch (error) {
         console.error("Fout bij het ophalen van factuurgegevens:", error)
+      }
+    } else {
+      // If no invoice was created automatically, create one
+      try {
+        if (customer) {
+          // Create invoice item
+          const invoiceItem = await stripe.invoiceItems.create({
+            customer: customer as string,
+            amount: session.amount_total || 0,
+            currency: session.currency || "eur",
+            description: `Betaling voor ${productName || "dienst"}`,
+          })
+
+          // Create and finalize invoice
+          const invoice = await stripe.invoices.create({
+            customer: customer as string,
+            auto_advance: true,
+            collection_method: "charge_automatically",
+            description: `Factuur voor ${productName || "dienst"}`,
+          })
+
+          // Finalize and send invoice
+          const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
+
+          if (finalizedInvoice.status === "paid") {
+            await stripe.invoices.sendInvoice(finalizedInvoice.id)
+            console.log(`Manual invoice created and sent to ${customerEmail}`)
+
+            response.invoiceUrl = finalizedInvoice.hosted_invoice_url || null
+            response.invoicePdf = finalizedInvoice.invoice_pdf || null
+          }
+        }
+      } catch (invoiceError) {
+        console.error("Error creating manual invoice:", invoiceError)
       }
     }
 
@@ -344,7 +248,6 @@ export async function handleSuccessfulPayment(sessionId: string) {
 
       // Probeer eerst een bestaand contact bij te werken of een nieuw aan te maken
       let contactId: number | undefined
-      let enrollmentResult: any = { success: false }
 
       try {
         console.log(`Upserting ClickFunnels contact for email: ${customerEmail}`)
@@ -360,11 +263,11 @@ export async function handleSuccessfulPayment(sessionId: string) {
           first_name: firstName as string,
           last_name: lastName as string,
           // Explicitly omit phone to prevent the "Phone number has already been taken" error
-          tags: [metadata?.membershipLevel || "basic", "stripe-customer", "paid-customer"],
+          tags: [product?.metadata?.clickfunnels_membership_level || "basic", "stripe-customer", "paid-customer"],
           custom_fields: {
             product_id: productId || "",
             product_name: productName || "",
-            membership_level: metadata?.membershipLevel || "basic",
+            membership_level: product?.metadata?.clickfunnels_membership_level || "basic",
             payment_amount: formattedAmount,
             payment_date: new Date().toISOString(),
             payment_method: "Stripe",
@@ -387,69 +290,24 @@ export async function handleSuccessfulPayment(sessionId: string) {
           throw new Error(`Failed to upsert ClickFunnels contact: ${upsertResult.error}`)
         }
 
-        // Als er een course ID is en een contact ID, schrijf de klant in voor de cursus
-        if (courseId && contactId) {
-          console.log(`Enrolling contact ${contactId} in course ${courseId}...`)
+        // Als er course IDs zijn en een contact ID, schrijf de klant in voor de cursussen
+        if (courseIds.length > 0 && contactId) {
+          console.log(`Enrolling contact ${contactId} in ${courseIds.length} courses...`)
 
-          // Check if the contact is already enrolled in the course
-          const existingEnrollments = await getContactEnrollments(contactId, courseId)
-          console.log("Existing enrollments:", existingEnrollments)
+          const enrollmentResult = await enrollUserInCourses(contactId, courseIds, sessionId)
 
-          if (
-            existingEnrollments.success &&
-            existingEnrollments.data.courses_enrollments &&
-            existingEnrollments.data.courses_enrollments.length > 0
-          ) {
-            console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping enrollment.`)
-            response = { ...response, hasEnrollment: true }
-          } else {
-            console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
+          response = {
+            ...response,
+            hasEnrollment: enrollmentResult.enrolledCourses.length > 0,
+            enrolledCourses: enrollmentResult.enrolledCourses,
+            failedCourses: enrollmentResult.failedCourses,
+          }
 
-            // Try multiple times with different approaches if needed
-            let enrollmentSuccess = false
-            let attempts = 0
-            const maxAttempts = 3
-
-            while (!enrollmentSuccess && attempts < maxAttempts) {
-              attempts++
-              console.log(`Enrollment attempt ${attempts} of ${maxAttempts}`)
-
-              try {
-                enrollmentResult = await createCourseEnrollment({
-                  contact_id: contactId,
-                  course_id: courseId,
-                  origination_source_type: "stripe_checkout",
-                  origination_source_id: 1,
-                })
-
-                console.log(`Attempt ${attempts} result:`, enrollmentResult)
-
-                if (enrollmentResult.success) {
-                  enrollmentSuccess = true
-                  console.log(`Successfully enrolled contact in course on attempt ${attempts}:`, enrollmentResult.data)
-                  response = { ...response, hasEnrollment: true }
-                  break
-                } else {
-                  console.error(`Failed to enroll contact in course on attempt ${attempts}:`, enrollmentResult.error)
-
-                  // Wait a bit before retrying
-                  await new Promise((resolve) => setTimeout(resolve, 1000))
-                }
-              } catch (enrollError) {
-                console.error(`Error during enrollment attempt ${attempts}:`, enrollError)
-
-                // Wait a bit before retrying
-                await new Promise((resolve) => setTimeout(resolve, 1000))
-              }
-            }
-
-            if (!enrollmentSuccess) {
-              console.error(`All ${maxAttempts} enrollment attempts failed`)
-              response = { ...response, hasEnrollment: false }
-            }
+          if (enrollmentResult.failedCourses.length > 0) {
+            console.warn(`Failed to enroll in some courses: ${enrollmentResult.failedCourses.join(", ")}`)
           }
         } else {
-          console.log(`Missing course ID (${courseId}) or contact ID (${contactId}). Cannot create enrollment.`)
+          console.log(`No courses to enroll in or missing contact ID (${contactId})`)
         }
       } catch (error: any) {
         console.error("Error updating/creating Evotion account or enrollment:", error)
