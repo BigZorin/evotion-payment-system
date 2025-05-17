@@ -1,8 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Menu, X, Home, ShoppingBag, LinkIcon, Search } from "lucide-react"
+import { Menu, X, Home, ShoppingBag, LinkIcon, Search, RefreshCw } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import ProductsTab from "./products"
 import ProductDetails from "./product-details"
 import BetaallinksTabComponent from "./betaallinks"
@@ -36,10 +38,13 @@ export default function AdminDashboardClient({
   )
   const [recentActivity, setRecentActivity] = useState(initialRecentActivity || [])
   const [recentEnrollments, setRecentEnrollments] = useState(initialRecentEnrollments || [])
+  const [courses, setCourses] = useState(initialCourses || [])
+  const [clickfunnelsProducts, setClickfunnelsProducts] = useState(initialClickfunnelsProducts || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
+  const [error, setError] = useState<string | null>(null)
 
   // Check if we're on mobile
   useEffect(() => {
@@ -55,14 +60,65 @@ export default function AdminDashboardClient({
     }
   }, [])
 
+  // Laad data als deze niet beschikbaar is
+  useEffect(() => {
+    async function loadDashboardData() {
+      // Als we geen producten hebben, haal ze op
+      if (!clickfunnelsProducts || clickfunnelsProducts.length === 0) {
+        try {
+          setIsRefreshing(true)
+          setError(null)
+
+          const response = await fetch("/api/admin/dashboard")
+
+          if (!response.ok) {
+            throw new Error(`Error fetching dashboard data: ${response.status}`)
+          }
+
+          const data = await response.json()
+
+          setStats(data.stats)
+          setRecentActivity(data.recentActivity)
+          setRecentEnrollments(data.recentEnrollments)
+          setCourses(data.courses)
+          setClickfunnelsProducts(data.clickfunnelsProducts)
+        } catch (err) {
+          console.error("Error loading dashboard data:", err)
+          setError("Er is een fout opgetreden bij het laden van de dashboard gegevens")
+        } finally {
+          setIsRefreshing(false)
+        }
+      }
+    }
+
+    loadDashboardData()
+  }, [clickfunnelsProducts])
+
   // Functie om dashboard data te verversen
   const refreshDashboard = async () => {
-    setIsRefreshing(true)
-    // Hier zou je API calls kunnen doen om verse data op te halen
-    // Voor nu simuleren we een vertraging
-    setTimeout(() => {
+    try {
+      setIsRefreshing(true)
+      setError(null)
+
+      const response = await fetch("/api/admin/dashboard")
+
+      if (!response.ok) {
+        throw new Error(`Error refreshing dashboard data: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      setStats(data.stats)
+      setRecentActivity(data.recentActivity)
+      setRecentEnrollments(data.recentEnrollments)
+      setCourses(data.courses)
+      setClickfunnelsProducts(data.clickfunnelsProducts)
+    } catch (err) {
+      console.error("Error refreshing dashboard data:", err)
+      setError("Er is een fout opgetreden bij het verversen van de dashboard gegevens")
+    } finally {
       setIsRefreshing(false)
-    }, 1000)
+    }
   }
 
   const navItems = [
@@ -114,6 +170,11 @@ export default function AdminDashboardClient({
                 {item.label}
               </button>
             ))}
+
+            <Button variant="outline" size="sm" onClick={refreshDashboard} disabled={isRefreshing} className="ml-2">
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing ? "Verversen..." : "Verversen"}
+            </Button>
           </nav>
 
           {/* Mobile Menu Button */}
@@ -146,6 +207,17 @@ export default function AdminDashboardClient({
                 {item.label}
               </button>
             ))}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshDashboard}
+              disabled={isRefreshing}
+              className="mx-4 mt-2 w-[calc(100%-2rem)]"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing ? "Verversen..." : "Verversen"}
+            </Button>
           </div>
         )}
       </header>
@@ -168,6 +240,15 @@ export default function AdminDashboardClient({
         </div>
       </div>
 
+      {/* Error Message */}
+      {error && (
+        <div className="container mx-auto px-4 py-4">
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <div className="container mx-auto p-4 lg:p-8">
@@ -187,7 +268,7 @@ export default function AdminDashboardClient({
                 <ProductDetails productId={selectedProductId} onBack={handleBackToProducts} />
               ) : (
                 <ProductsTab
-                  initialProducts={initialClickfunnelsProducts}
+                  initialProducts={clickfunnelsProducts}
                   onSelectProduct={handleSelectProduct}
                   searchTerm={searchTerm}
                 />
@@ -195,7 +276,7 @@ export default function AdminDashboardClient({
             </TabsContent>
 
             <TabsContent value="betaallinks">
-              <BetaallinksTabComponent initialProducts={initialClickfunnelsProducts} searchTerm={searchTerm} />
+              <BetaallinksTabComponent initialProducts={clickfunnelsProducts} searchTerm={searchTerm} />
             </TabsContent>
           </Tabs>
         </div>
