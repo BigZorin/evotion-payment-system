@@ -46,8 +46,24 @@ async function getProductsWithCache() {
   return productsCache
 }
 
+// Controleer of Stripe correct is geconfigureerd
+function validateStripeConfig() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error("STRIPE_SECRET_KEY is niet geconfigureerd in de omgevingsvariabelen")
+  }
+
+  if (!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+    console.warn("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is niet geconfigureerd in de omgevingsvariabelen")
+  }
+
+  return true
+}
+
 export async function POST(req: NextRequest) {
   try {
+    // Controleer Stripe configuratie
+    validateStripeConfig()
+
     // Performance meting starten
     const startTime = performance.now()
 
@@ -266,19 +282,6 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    // Voeg abonnementsgegevens toe indien nodig
-    if (isRecurring) {
-      sessionOptions.line_items[0].price_data.recurring = {
-        interval: recurringInterval,
-        interval_count: recurringIntervalCount,
-      }
-
-      // Voeg subscription_data toe voor metadata in de subscription
-      sessionOptions.subscription_data = {
-        metadata, // Dupliceer metadata in subscription voor webhook toegang
-      }
-    }
-
     console.log("Creating Stripe checkout session with options:", JSON.stringify(sessionOptions, null, 2))
 
     const sessionPromise = stripe.checkout.sessions.create(sessionOptions)
@@ -299,6 +302,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ sessionId: session.id })
   } catch (error: any) {
     console.error("Error creating checkout session:", error)
+
+    // Specifieke foutafhandeling voor Stripe configuratie problemen
+    if (error.message && error.message.includes("STRIPE_SECRET_KEY")) {
+      return NextResponse.json(
+        {
+          error: "Stripe is niet correct geconfigureerd. Neem contact op met de beheerder.",
+          details: error.message,
+        },
+        { status: 500 },
+      )
+    }
 
     // Gedetailleerde foutafhandeling
     if (error.type === "StripeCardError") {
