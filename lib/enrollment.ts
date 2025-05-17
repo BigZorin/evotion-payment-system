@@ -22,18 +22,13 @@ export async function createCourseEnrollment(enrollment: ClickFunnelsEnrollment)
     const existingEnrollments = await getContactEnrollments(enrollment.contact_id, enrollment.course_id)
 
     // If the contact is already enrolled, return success without creating a new enrollment
-    if (
-      existingEnrollments.success &&
-      existingEnrollments.data &&
-      existingEnrollments.data.courses_enrollments &&
-      existingEnrollments.data.courses_enrollments.length > 0
-    ) {
+    if (existingEnrollments.success && existingEnrollments.data && existingEnrollments.data.length > 0) {
       console.log(
         `Contact ${enrollment.contact_id} is already enrolled in course ${enrollment.course_id}. Skipping enrollment.`,
       )
       return {
         success: true,
-        data: existingEnrollments.data.courses_enrollments[0],
+        data: existingEnrollments.data[0],
         alreadyEnrolled: true,
       }
     }
@@ -112,7 +107,7 @@ export async function getContactEnrollments(contactId: number, courseId: string 
   try {
     console.log(`Checking enrollments for contact ID: ${contactId} in course ID: ${courseId}`)
 
-    // URL voor het ophalen van enrollments
+    // URL voor het ophalen van enrollments met filter op contact_id
     const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/courses/${courseId}/enrollments?filter[contact_id]=${contactId}`
 
     console.log(`Using ClickFunnels Enrollment API URL: ${API_URL}`)
@@ -135,8 +130,17 @@ export async function getContactEnrollments(contactId: number, courseId: string 
       throw new Error(`ClickFunnels Enrollment API error: ${response.status}`)
     }
 
+    // Parse the response as an array of enrollment objects
     const data = JSON.parse(responseText)
-    return { success: true, data }
+
+    // Log the number of enrollments found
+    console.log(`Found ${data.length} existing enrollments for contact ${contactId} in course ${courseId}`)
+
+    // Check if any of the enrollments are not suspended
+    const activeEnrollments = data.filter((enrollment: any) => enrollment.suspended !== true)
+    console.log(`Found ${activeEnrollments.length} active (non-suspended) enrollments`)
+
+    return { success: true, data: activeEnrollments }
   } catch (error) {
     console.error("Error getting ClickFunnels enrollments:", error)
     return { success: false, error: String(error) }

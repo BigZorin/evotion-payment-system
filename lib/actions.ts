@@ -1,7 +1,8 @@
 "use server"
 
 import { stripe } from "./stripe" // Import stripe
-import { trackEnrollment, createCourseEnrollment, getContactEnrollments } from "./enrollment" // Import enrollment functions
+import { trackEnrollment } from "./enrollment-tracker" // Import trackEnrollment
+import { createCourseEnrollment, getContactEnrollments } from "./enrollment" // Import enrollment functions
 import { getProductById } from "./products" // Import getProductById
 import { upsertClickFunnelsContact } from "./clickfunnels" // Import upsertClickFunnelsContact
 import type { CompanyDetails } from "./types"
@@ -107,7 +108,7 @@ export async function createCheckoutSession({
   }
 }
 
-// Voeg deze functie toe aan actions.ts
+// Verbeterde functie om gebruikers in te schrijven voor cursussen
 export async function enrollUserInCourses(
   contactId: number,
   courseIds: string[],
@@ -115,14 +116,16 @@ export async function enrollUserInCourses(
 ): Promise<{
   success: boolean
   enrolledCourses: string[]
+  alreadyEnrolledCourses: string[]
   failedCourses: string[]
 }> {
   const enrolledCourses: string[] = []
+  const alreadyEnrolledCourses: string[] = []
   const failedCourses: string[] = []
 
   if (!courseIds || courseIds.length === 0) {
     console.log("No courses to enroll in")
-    return { success: true, enrolledCourses, failedCourses }
+    return { success: true, enrolledCourses, alreadyEnrolledCourses, failedCourses }
   }
 
   console.log(`Enrolling contact ${contactId} in ${courseIds.length} courses...`)
@@ -130,7 +133,16 @@ export async function enrollUserInCourses(
   // Process each course enrollment sequentially
   for (const courseId of courseIds) {
     try {
-      // Check if this enrollment has already been processed
+      // Controleer eerst of de gebruiker al is ingeschreven voor deze cursus
+      const existingEnrollments = await getContactEnrollments(contactId, courseId)
+
+      if (existingEnrollments.success && existingEnrollments.data && existingEnrollments.data.length > 0) {
+        console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping enrollment.`)
+        alreadyEnrolledCourses.push(courseId)
+        continue
+      }
+
+      // Check if this enrollment has already been processed in this session
       if (await trackEnrollment(sessionId, contactId, courseId)) {
         console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
 
@@ -154,15 +166,17 @@ export async function enrollUserInCourses(
             console.log(`Attempt ${attempts} result for course ${courseId}:`, enrollmentResult)
 
             if (enrollmentResult.success) {
-              enrollmentSuccess = true
-              console.log(`Successfully enrolled contact in course ${courseId} on attempt ${attempts}`)
-              enrolledCourses.push(courseId)
-              break
-            } else if (enrollmentResult.alreadyEnrolled) {
-              // User is already enrolled, count as success
-              enrollmentSuccess = true
-              console.log(`Contact ${contactId} is already enrolled in course ${courseId}`)
-              enrolledCourses.push(courseId)
+              if (enrollmentResult.alreadyEnrolled) {
+                // User is already enrolled, add to alreadyEnrolledCourses
+                enrollmentSuccess = true
+                console.log(`Contact ${contactId} is already enrolled in course ${courseId}`)
+                alreadyEnrolledCourses.push(courseId)
+              } else {
+                // New enrollment successful
+                enrollmentSuccess = true
+                console.log(`Successfully enrolled contact in course ${courseId} on attempt ${attempts}`)
+                enrolledCourses.push(courseId)
+              }
               break
             } else {
               console.error(
@@ -187,18 +201,6 @@ export async function enrollUserInCourses(
         console.log(
           `Enrollment for session ${sessionId} and course ${courseId} already processed or will be handled by webhook. Skipping.`,
         )
-
-        // Check if the user is already enrolled
-        const existingEnrollments = await getContactEnrollments(contactId, courseId)
-        if (
-          existingEnrollments.success &&
-          existingEnrollments.data &&
-          existingEnrollments.data.courses_enrollments &&
-          existingEnrollments.data.courses_enrollments.length > 0
-        ) {
-          console.log(`Contact ${contactId} is already enrolled in course ${courseId}.`)
-          enrolledCourses.push(courseId)
-        }
       }
     } catch (error) {
       console.error(`Error enrolling in course ${courseId}:`, error)
@@ -209,6 +211,7 @@ export async function enrollUserInCourses(
   return {
     success: failedCourses.length === 0,
     enrolledCourses,
+    alreadyEnrolledCourses,
     failedCourses,
   }
 }
@@ -280,6 +283,7 @@ export async function handleSuccessfulPayment(sessionId: string) {
       hasEnrollment: false,
       courseIds: courseIds,
       enrolledCourses: [] as string[],
+      alreadyEnrolledCourses: [] as string[],
       failedCourses: [] as string[],
       error: null as string | null,
       invoiceUrl: null as string | null,
@@ -402,9 +406,15 @@ export async function handleSuccessfulPayment(sessionId: string) {
 
           response = {
             ...response,
-            hasEnrollment: enrollmentResult.enrolledCourses.length > 0,
+            hasEnrollment:
+              enrollmentResult.enrolledCourses.length > 0 || enrollmentResult.alreadyEnrolledCourses.length > 0,
             enrolledCourses: enrollmentResult.enrolledCourses,
+            alreadyEnrolledCourses: enrollmentResult.alreadyEnrolledCourses,
             failedCourses: enrollmentResult.failedCourses,
+          }
+
+          if (enrollmentResult.alreadyEnrolledCourses.length > 0) {
+            console.log(`User was already enrolled in courses: ${enrollmentResult.alreadyEnrolledCourses.join(", ")}`)
           }
 
           if (enrollmentResult.failedCourses.length > 0) {

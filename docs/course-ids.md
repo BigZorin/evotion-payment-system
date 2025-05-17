@@ -4,11 +4,11 @@ Dit document bevat een overzicht van alle cursus IDs en hun bijbehorende namen v
 
 ## Cursus IDs
 
-| Cursus ID | Naam | URL |
-|-----------|------|-----|
-| eWbLVk | 12-Weken Vetverlies Programma | https://www.evotion-coaching.nl/community/c/12-weken-vetverlies-programma-cursus |
-| vgDnxN | Voedingsplan Masterclass | https://www.evotion-coaching.nl/community/c/voedingsplan-masterclass |
-| JMaGxK | Trainingsschema Masterclass | https://www.evotion-coaching.nl/community/c/trainingsschema-masterclass |
+| Cursus ID | Naam | Beschrijving | URL |
+|-----------|------|-------------|-----|
+| eWbLVk | 12-Weken Vetverlies Programma | Compleet programma voor duurzaam vetverlies | https://www.evotion-coaching.nl/community/c/12-weken-vetverlies-programma-cursus |
+| vgDnxN | Uitleg van Oefeningen | Uitleg van oefeningen in het trainingsschema | https://www.evotion-coaching.nl/community/c/uitleg-van-oefeningen |
+| JMaGxK | Evotion-Coaching App Handleiding | Uitleg hoe de Evotion-Coaching app werkt | https://www.evotion-coaching.nl/community/c/app-handleiding |
 
 ## Producten en bijbehorende cursussen
 

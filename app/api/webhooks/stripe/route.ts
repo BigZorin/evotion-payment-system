@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { stripe } from "@/lib/stripe"
 import { trackEnrollment } from "@/lib/enrollment-tracker"
-import { createCourseEnrollment } from "@/lib/enrollment"
+import { createCourseEnrollment, getContactEnrollments } from "@/lib/enrollment"
 import { getProductById } from "@/lib/products"
 import { upsertClickFunnelsContact } from "@/lib/clickfunnels"
 
@@ -13,14 +13,16 @@ async function enrollUserInCoursesWebhook(
 ): Promise<{
   success: boolean
   enrolledCourses: string[]
+  alreadyEnrolledCourses: string[]
   failedCourses: string[]
 }> {
   const enrolledCourses: string[] = []
+  const alreadyEnrolledCourses: string[] = []
   const failedCourses: string[] = []
 
   if (!courseIds || courseIds.length === 0) {
     console.log("No courses to enroll in via webhook")
-    return { success: true, enrolledCourses, failedCourses }
+    return { success: true, enrolledCourses, alreadyEnrolledCourses, failedCourses }
   }
 
   console.log(`Webhook enrolling contact ${contactId} in ${courseIds.length} courses...`)
@@ -28,8 +30,17 @@ async function enrollUserInCoursesWebhook(
   // Process each course enrollment sequentially
   for (const courseId of courseIds) {
     try {
+      // Controleer eerst of de gebruiker al is ingeschreven voor deze cursus
+      const existingEnrollments = await getContactEnrollments(contactId, courseId)
+
+      if (existingEnrollments.success && existingEnrollments.data && existingEnrollments.data.length > 0) {
+        console.log(`Contact ${contactId} is already enrolled in course ${courseId}. Skipping webhook enrollment.`)
+        alreadyEnrolledCourses.push(courseId)
+        continue
+      }
+
       // Check if this enrollment has already been processed
-      if (trackEnrollment(sessionId, contactId, courseId)) {
+      if (await trackEnrollment(sessionId, contactId, courseId)) {
         console.log(`Creating new enrollment via webhook for contact ${contactId} in course ${courseId}...`)
 
         // Try multiple times with different approaches if needed
@@ -52,15 +63,17 @@ async function enrollUserInCoursesWebhook(
             console.log(`Webhook attempt ${attempts} result for course ${courseId}:`, enrollmentResult)
 
             if (enrollmentResult.success) {
-              enrollmentSuccess = true
-              console.log(`Successfully enrolled contact in course ${courseId} via webhook on attempt ${attempts}`)
-              enrolledCourses.push(courseId)
-              break
-            } else if (enrollmentResult.alreadyEnrolled) {
-              // User is already enrolled, count as success
-              enrollmentSuccess = true
-              console.log(`Contact ${contactId} is already enrolled in course ${courseId} (webhook check)`)
-              enrolledCourses.push(courseId)
+              if (enrollmentResult.alreadyEnrolled) {
+                // User is already enrolled, add to alreadyEnrolledCourses
+                enrollmentSuccess = true
+                console.log(`Contact ${contactId} is already enrolled in course ${courseId} (webhook check)`)
+                alreadyEnrolledCourses.push(courseId)
+              } else {
+                // New enrollment successful
+                enrollmentSuccess = true
+                console.log(`Successfully enrolled contact in course ${courseId} via webhook on attempt ${attempts}`)
+                enrolledCourses.push(courseId)
+              }
               break
             } else {
               console.error(
@@ -95,6 +108,7 @@ async function enrollUserInCoursesWebhook(
   return {
     success: failedCourses.length === 0,
     enrolledCourses,
+    alreadyEnrolledCourses,
     failedCourses,
   }
 }
@@ -184,6 +198,10 @@ export async function POST(req: NextRequest) {
               console.log(
                 `Successfully enrolled in courses via webhook: ${enrollmentResult.enrolledCourses.join(", ")}`,
               )
+            }
+
+            if (enrollmentResult.alreadyEnrolledCourses.length > 0) {
+              console.log(`User was already enrolled in courses: ${enrollmentResult.alreadyEnrolledCourses.join(", ")}`)
             }
 
             if (enrollmentResult.failedCourses.length > 0) {
