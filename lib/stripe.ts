@@ -1,19 +1,17 @@
-import Stripe from "stripe"
+// Dit bestand is nu alleen voor compatibiliteit met bestaande imports
+// Nieuwe code zou direct stripe-server.ts of stripe-client.ts moeten importeren
 
-// Controleer of de STRIPE_SECRET_KEY is ingesteld
-if (!process.env.STRIPE_SECRET_KEY) {
-  console.error("STRIPE_SECRET_KEY is niet ingesteld in de omgevingsvariabelen")
-  throw new Error("STRIPE_SECRET_KEY is niet ingesteld")
-}
+// Re-export de client-side configuratie
+export { STRIPE_PUBLISHABLE_KEY } from "./stripe-client"
 
-// Initialiseer de Stripe client met de API key
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16", // Gebruik de meest recente API versie
-  appInfo: {
-    name: "Evotion Coaching Betaalplatform",
-    version: "1.0.0",
-  },
-})
-
-// Exporteer de publieke sleutel voor gebruik in de frontend
-export const STRIPE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+// Server-side import met dynamische import om client-side errors te voorkomen
+export const stripe = process.env.STRIPE_SECRET_KEY
+  ? (async () => {
+      // Dit wordt alleen uitgevoerd op de server
+      if (typeof window === "undefined") {
+        const { stripe } = await import("./stripe-server")
+        return stripe
+      }
+      return null
+    })()
+  : null

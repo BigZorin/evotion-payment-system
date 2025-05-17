@@ -60,39 +60,40 @@ export default function AdminDashboardClient({
     }
   }, [])
 
+  // Wijzig de useEffect die data laadt
+
   // Laad data als deze niet beschikbaar is
   useEffect(() => {
     async function loadDashboardData() {
-      // Als we geen producten hebben, haal ze op
-      if (!clickfunnelsProducts || clickfunnelsProducts.length === 0) {
-        try {
-          setIsRefreshing(true)
-          setError(null)
+      // Altijd data laden bij eerste render, ongeacht of we al producten hebben
+      try {
+        setIsRefreshing(true)
+        setError(null)
 
-          const response = await fetch("/api/admin/dashboard")
+        const response = await fetch("/api/admin/dashboard")
 
-          if (!response.ok) {
-            throw new Error(`Error fetching dashboard data: ${response.status}`)
-          }
-
-          const data = await response.json()
-
-          setStats(data.stats)
-          setRecentActivity(data.recentActivity)
-          setRecentEnrollments(data.recentEnrollments)
-          setCourses(data.courses)
-          setClickfunnelsProducts(data.clickfunnelsProducts)
-        } catch (err) {
-          console.error("Error loading dashboard data:", err)
-          setError("Er is een fout opgetreden bij het laden van de dashboard gegevens")
-        } finally {
-          setIsRefreshing(false)
+        if (!response.ok) {
+          throw new Error(`Error fetching dashboard data: ${response.status}`)
         }
+
+        const data = await response.json()
+
+        setStats(data.stats || initialStats)
+        setRecentActivity(data.recentActivity || initialRecentActivity)
+        setRecentEnrollments(data.recentEnrollments || initialRecentEnrollments)
+        setCourses(data.courses || initialCourses)
+        setClickfunnelsProducts(data.clickfunnelsProducts || initialClickfunnelsProducts)
+      } catch (err) {
+        console.error("Error loading dashboard data:", err)
+        setError("Er is een fout opgetreden bij het laden van de dashboard gegevens")
+      } finally {
+        setIsRefreshing(false)
       }
     }
 
+    // Altijd data laden bij eerste render
     loadDashboardData()
-  }, [clickfunnelsProducts])
+  }, []) // Verwijder clickfunnelsProducts uit de dependency array
 
   // Functie om dashboard data te verversen
   const refreshDashboard = async () => {

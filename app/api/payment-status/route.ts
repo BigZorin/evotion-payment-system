@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { stripe } from "@/lib/stripe"
+// Vervang de import van stripe
+import { stripe } from "@/lib/stripe-server"
 import { z } from "zod"
 
 // Schema voor validatie van de request body

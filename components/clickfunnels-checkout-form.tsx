@@ -13,7 +13,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { loadStripe } from "@stripe/stripe-js"
-import { STRIPE_PUBLISHABLE_KEY } from "@/lib/stripe"
+// Vervang de import van STRIPE_PUBLISHABLE_KEY
+import { STRIPE_PUBLISHABLE_KEY } from "@/lib/stripe-client"
 
 // Formulier schema
 const formSchema = z.object({

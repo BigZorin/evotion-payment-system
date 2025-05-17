@@ -1,6 +1,6 @@
 "use server"
 
-import { stripe } from "./stripe"
+import { stripe } from "@/lib/stripe-server"
 import { products } from "./products"
 import { getProductCourseMapping } from "./products"
 

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { stripe } from "@/lib/stripe"
+// Vervang de import van stripe
+import { stripe } from "@/lib/stripe-server"
 import { trackEnrollment } from "@/lib/enrollment-tracker"
 import { createCourseEnrollment, getContactEnrollments } from "@/lib/enrollment"
 import { getProductById } from "@/lib/products"

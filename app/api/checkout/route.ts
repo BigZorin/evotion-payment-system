@@ -1,6 +1,6 @@
 // Verbeter de error handling en voeg rate limiting toe
 import { type NextRequest, NextResponse } from "next/server"
-import { stripe } from "@/lib/stripe"
+import { stripe } from "@/lib/stripe-server"
 import { getClickFunnelsProducts } from "@/lib/admin"
 import { z } from "zod" // Importeer zod voor validatie
 
