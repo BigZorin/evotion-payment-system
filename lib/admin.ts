@@ -66,7 +66,6 @@ export interface ClickFunnelsVariant {
   sku?: string
   product_id?: number
   properties_value_ids?: number[]
-  price_ids?: number[]
   archived?: boolean
   visible?: boolean
   created_at?: string
@@ -864,10 +863,15 @@ export async function getRecentEnrollments(limit = 10): Promise<any[]> {
 
 // Helper functie om valuta te formatteren
 function formatCurrency(amount: number): string {
+  // Als het bedrag kleiner is dan 10, gaan we ervan uit dat het in euro's is en vermenigvuldigen we met 100
+  const amountInCents = amount < 10 ? amount * 100 : amount
+
   return new Intl.NumberFormat("nl-NL", {
     style: "currency",
     currency: "EUR",
-  }).format(amount / 100)
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amountInCents / 100)
 }
 
 // Helper functie om datums te formatteren
