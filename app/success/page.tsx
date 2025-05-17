@@ -11,6 +11,32 @@ interface SuccessPageProps {
   }
 }
 
+// Helper functie om de cursus naam te krijgen op basis van ID
+function getCourseName(courseId: string): { name: string; url: string } {
+  switch (courseId) {
+    case "eWbLVk":
+      return {
+        name: "12-Weken Vetverlies Programma",
+        url: "https://www.evotion-coaching.nl/community/c/12-weken-vetverlies-programma-cursus",
+      }
+    case "vgDnxN":
+      return {
+        name: "Voedingsplan Masterclass",
+        url: "https://www.evotion-coaching.nl/community/c/voedingsplan-masterclass",
+      }
+    case "JMaGxK":
+      return {
+        name: "Trainingsschema Masterclass",
+        url: "https://www.evotion-coaching.nl/community/c/trainingsschema-masterclass",
+      }
+    default:
+      return {
+        name: `Cursus (ID: ${courseId})`,
+        url: "https://www.evotion-coaching.nl/community",
+      }
+  }
+}
+
 export default async function SuccessPage({ searchParams }: SuccessPageProps) {
   const sessionId = searchParams.session_id
 
@@ -81,24 +107,16 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
 
                   {enrolledCourses.length > 0 && (
                     <ul className="list-disc pl-10 space-y-1 text-white/90">
-                      {enrolledCourses.includes("eWbLVk") && (
-                        <li>
-                          <Link
-                            href="https://www.evotion-coaching.nl/community/c/12-weken-vetverlies-programma-cursus"
-                            className="text-white hover:underline"
-                          >
-                            12-Weken Vetverlies Programma
-                          </Link>
-                        </li>
-                      )}
-                      {enrolledCourses
-                        .filter((id) => id !== "eWbLVk")
-                        .map((courseId, index) => (
+                      {enrolledCourses.map((courseId, index) => {
+                        const course = getCourseName(courseId)
+                        return (
                           <li key={index}>
-                            Cursus ID: {courseId}{" "}
-                            {/* Vervang dit door de echte cursus naam en link wanneer beschikbaar */}
+                            <Link href={course.url} className="text-white hover:underline">
+                              {course.name}
+                            </Link>
                           </li>
-                        ))}
+                        )
+                      })}
                     </ul>
                   )}
 
@@ -135,16 +153,38 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
                   </Button>
                 </Link>
 
-                {hasEnrollment && enrolledCourses.includes("eWbLVk") && (
-                  <div className="mt-4">
-                    <Link href="https://www.evotion-coaching.nl/community/c/12-weken-vetverlies-programma-cursus">
-                      <Button
-                        className="bg-[#1e1839] hover:bg-[#1e1839]/80 text-white px-8 py-3 rounded-md font-medium transition-colors duration-300 border border-white"
-                        variant="outline"
-                      >
-                        Ga direct naar de 12-Weken Vetverlies cursus
-                      </Button>
-                    </Link>
+                {hasEnrollment && enrolledCourses.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {enrolledCourses.includes("eWbLVk") && (
+                      <Link href="https://www.evotion-coaching.nl/community/c/12-weken-vetverlies-programma-cursus">
+                        <Button
+                          className="bg-[#1e1839] hover:bg-[#1e1839]/80 text-white px-8 py-3 rounded-md font-medium transition-colors duration-300 border border-white w-full"
+                          variant="outline"
+                        >
+                          Ga naar 12-Weken Vetverlies Programma
+                        </Button>
+                      </Link>
+                    )}
+                    {enrolledCourses.includes("vgDnxN") && (
+                      <Link href="https://www.evotion-coaching.nl/community/c/voedingsplan-masterclass">
+                        <Button
+                          className="bg-[#1e1839] hover:bg-[#1e1839]/80 text-white px-8 py-3 rounded-md font-medium transition-colors duration-300 border border-white w-full"
+                          variant="outline"
+                        >
+                          Ga naar Voedingsplan Masterclass
+                        </Button>
+                      </Link>
+                    )}
+                    {enrolledCourses.includes("JMaGxK") && (
+                      <Link href="https://www.evotion-coaching.nl/community/c/trainingsschema-masterclass">
+                        <Button
+                          className="bg-[#1e1839] hover:bg-[#1e1839]/80 text-white px-8 py-3 rounded-md font-medium transition-colors duration-300 border border-white w-full"
+                          variant="outline"
+                        >
+                          Ga naar Trainingsschema Masterclass
+                        </Button>
+                      </Link>
+                    )}
                   </div>
                 )}
               </div>

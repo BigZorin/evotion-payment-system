@@ -4,6 +4,108 @@ import { stripe } from "./stripe" // Import stripe
 import { trackEnrollment, createCourseEnrollment, getContactEnrollments } from "./enrollment" // Import enrollment functions
 import { getProductById } from "./products" // Import getProductById
 import { upsertClickFunnelsContact } from "./clickfunnels" // Import upsertClickFunnelsContact
+import type { CompanyDetails } from "./types"
+
+// Implementeer de createCheckoutSession functie
+export async function createCheckoutSession({
+  productId,
+  customerEmail,
+  customerFirstName,
+  customerLastName,
+  customerPhone,
+  customerBirthDate,
+  companyDetails,
+}: {
+  productId: string
+  customerEmail: string
+  customerFirstName: string
+  customerLastName: string
+  customerPhone?: string
+  customerBirthDate?: string
+  companyDetails?: CompanyDetails
+}) {
+  try {
+    console.log(`Creating checkout session for product ${productId} and customer ${customerEmail}`)
+
+    // Haal het product op
+    const product = getProductById(productId)
+    if (!product) {
+      throw new Error(`Product met ID ${productId} niet gevonden`)
+    }
+
+    // Bepaal de success en cancel URLs
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+    const successUrl = `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`
+    const cancelUrl = `${baseUrl}/checkout/${productId}`
+
+    // Stel de metadata samen
+    const metadata: Record<string, string> = {
+      productId,
+      productName: product.name,
+      email: customerEmail,
+      first_name: customerFirstName,
+      last_name: customerLastName,
+      enrollment_handled_by: "success_page", // Geef aan dat de success page de enrollment zal afhandelen
+    }
+
+    // Voeg optionele velden toe aan metadata als ze bestaan
+    if (customerPhone) metadata.phone = customerPhone
+    if (customerBirthDate) metadata.birth_date = customerBirthDate
+    if (product.metadata?.clickfunnels_membership_level) {
+      metadata.membership_level = product.metadata.clickfunnels_membership_level
+    }
+    if (product.metadata?.kahunas_package) {
+      metadata.kahunasPackage = product.metadata.kahunas_package
+    }
+
+    // Voeg bedrijfsgegevens toe aan metadata als ze bestaan
+    if (companyDetails) {
+      metadata.company_name = companyDetails.name
+      if (companyDetails.vatNumber) metadata.vat_number = companyDetails.vatNumber
+      if (companyDetails.address) metadata.company_address = companyDetails.address
+      if (companyDetails.postalCode) metadata.company_postal_code = companyDetails.postalCode
+      if (companyDetails.city) metadata.company_city = companyDetails.city
+    }
+
+    // Maak de checkout sessie aan
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card", "ideal"],
+      line_items: [
+        {
+          price_data: {
+            currency: "eur",
+            product_data: {
+              name: product.name,
+              description: product.description,
+              metadata: {
+                productId,
+              },
+            },
+            unit_amount: product.price,
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      customer_email: customerEmail,
+      metadata,
+      payment_intent_data: {
+        metadata, // Dupliceer metadata in payment intent voor webhook toegang
+      },
+      invoice_creation: {
+        enabled: true,
+      },
+    })
+
+    console.log(`Checkout session created with ID: ${session.id}`)
+    return { sessionId: session.id }
+  } catch (error) {
+    console.error("Error creating checkout session:", error)
+    throw error
+  }
+}
 
 // Voeg deze functie toe aan actions.ts
 export async function enrollUserInCourses(
@@ -29,7 +131,7 @@ export async function enrollUserInCourses(
   for (const courseId of courseIds) {
     try {
       // Check if this enrollment has already been processed
-      if (trackEnrollment(sessionId, contactId, courseId)) {
+      if (await trackEnrollment(sessionId, contactId, courseId)) {
         console.log(`Creating new enrollment for contact ${contactId} in course ${courseId}...`)
 
         // Try multiple times with different approaches if needed
@@ -109,12 +211,6 @@ export async function enrollUserInCourses(
     enrolledCourses,
     failedCourses,
   }
-}
-
-// Zorg ervoor dat alle server actions async zijn
-export async function createCheckoutSession(data: any) {
-  // Implementatie hier
-  return { sessionId: "test_session_id" }
 }
 
 // Update de handleSuccessfulPayment functie om meerdere cursussen te ondersteunen
