@@ -9,16 +9,18 @@ type CacheEntry<T> = {
 class Cache {
   private cache: Map<string, CacheEntry<any>> = new Map()
 
-  // Standaard cache-duur in milliseconden (5 minuten)
-  private defaultTTL = 5 * 60 * 1000
+  // Standaard cache-duur in milliseconden (1 seconde - effectief geen cache)
+  private defaultTTL = 1 * 1000
 
-  // Cache-duur per type data
+  // Cache-duur per type data (allemaal 1 seconde - effectief geen cache)
   private ttlConfig = {
-    products: 15 * 60 * 1000, // 15 minuten voor producten
-    collections: 30 * 60 * 1000, // 30 minuten voor collections
-    courses: 60 * 60 * 1000, // 1 uur voor cursussen
-    variants: 15 * 60 * 1000, // 15 minuten voor varianten
-    prices: 15 * 60 * 1000, // 15 minuten voor prijzen
+    products: 1 * 1000, // 1 seconde voor producten
+    collections: 1 * 1000, // 1 seconde voor collections
+    courses: 1 * 1000, // 1 seconde voor cursussen
+    variants: 1 * 1000, // 1 seconde voor varianten
+    prices: 1 * 1000, // 1 seconde voor prijzen
+    enrollments: 1 * 1000, // 1 seconde voor inschrijvingen
+    contacts: 1 * 1000, // 1 seconde voor contacten
   }
 
   // Haal data op uit de cache
@@ -39,9 +41,8 @@ class Cache {
 
   // Sla data op in de cache
   set<T>(key: string, data: T, type?: keyof typeof this.ttlConfig): void {
-    const ttl = type ? this.ttlConfig[type] : this.defaultTTL
-    const expiry = Date.now() + ttl
-
+    // Sla op met zeer korte TTL (1 seconde)
+    const expiry = Date.now() + (type ? this.ttlConfig[type] : this.defaultTTL)
     this.cache.set(key, { data, expiry })
   }
 
@@ -87,9 +88,9 @@ export async function getCachedData<T>(
   key: string,
   fetchFn: () => Promise<T>,
   type?: keyof Cache["ttlConfig"],
-  bypassCache = false,
+  bypassCache = true, // Standaard altijd de cache omzeilen
 ): Promise<T> {
-  // Als we de cache willen omzeilen, haal dan direct nieuwe data op
+  // Altijd de cache omzeilen tenzij expliciet anders aangegeven
   if (bypassCache) {
     const data = await fetchFn()
     apiCache.set(key, data, type)

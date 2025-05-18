@@ -32,7 +32,8 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
       setError(null)
 
       try {
-        const response = await fetch(`/api/admin/products/${productId}`)
+        // Voeg refresh=true toe om de cache te omzeilen
+        const response = await fetch(`/api/admin/products/${productId}?refresh=true`)
 
         if (!response.ok) {
           throw new Error(`Error fetching product: ${response.status}`)
@@ -64,8 +65,8 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
     setCourseError(null)
 
     try {
-      // Gebruik de directe API route voor betere betrouwbaarheid
-      const response = await fetch(`/api/admin/products/${productId}/courses-direct`, {
+      // Gebruik de directe API route voor betere betrouwbaarheid en voeg refresh=true toe
+      const response = await fetch(`/api/admin/products/${productId}/courses-direct?refresh=true`, {
         cache: "no-store",
       })
 
@@ -99,6 +100,34 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
     navigator.clipboard.writeText(link)
     setCopiedLink(link)
     setTimeout(() => setCopiedLink(null), 2000)
+  }
+
+  // Functie om productgegevens te verversen
+  const refreshProductDetails = async () => {
+    if (!productId) return
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // Voeg refresh=true toe om de cache te omzeilen
+      const response = await fetch(`/api/admin/products/${productId}?refresh=true`)
+
+      if (!response.ok) {
+        throw new Error(`Error fetching product: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setProduct(data.product || data)
+
+      // Ververs ook de cursussen
+      await fetchProductCourses()
+    } catch (err) {
+      console.error("Error refreshing product details:", err)
+      setError("Er is een fout opgetreden bij het verversen van de productgegevens.")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   if (isLoading) {
@@ -154,9 +183,14 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
 
   return (
     <div>
-      <Button variant="ghost" className="mb-6" onClick={onBack}>
-        <ArrowLeft className="mr-2 h-4 w-4" /> Terug naar producten
-      </Button>
+      <div className="flex justify-between items-center mb-6">
+        <Button variant="ghost" onClick={onBack}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Terug naar producten
+        </Button>
+        <Button variant="outline" onClick={refreshProductDetails} className="ml-auto">
+          <RefreshCw className="mr-2 h-4 w-4" /> Verversen
+        </Button>
+      </div>
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <div>

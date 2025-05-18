@@ -1,15 +1,11 @@
 "use client"
 
 import { CardFooter } from "@/components/ui/card"
-
 import { CardContent } from "@/components/ui/card"
-
 import { CardHeader } from "@/components/ui/card"
-
 import { Card } from "@/components/ui/card"
-
 import { useState, useEffect } from "react"
-import { Menu, X, Home, ShoppingBag, LinkIcon, Search, RefreshCw } from "lucide-react"
+import { Menu, X, Home, ShoppingBag, LinkIcon, Search, RefreshCw, RotateCcw } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -51,6 +47,7 @@ export default function AdminDashboardClient({
   const [courses, setCourses] = useState(initialCourses || [])
   const [clickfunnelsProducts, setClickfunnelsProducts] = useState(initialClickfunnelsProducts || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isCacheClearing, setIsCacheClearing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
@@ -78,7 +75,7 @@ export default function AdminDashboardClient({
         setIsLoading(true)
         setError(null)
 
-        const response = await fetch("/api/admin/dashboard")
+        const response = await fetch("/api/admin/dashboard?refresh=true")
 
         if (!response.ok) {
           throw new Error(`Error fetching dashboard data: ${response.status}`)
@@ -93,7 +90,7 @@ export default function AdminDashboardClient({
         setClickfunnelsProducts(data.clickfunnelsProducts || initialClickfunnelsProducts)
       } catch (err) {
         console.error("Error loading dashboard data:", err)
-        setError("Er is een fout opgetreden bij het laden van de dashboard gegevens")
+        setError("Er is een fout opgetreden bij het laden van de dashboard gegevens.")
       } finally {
         setIsLoading(false)
       }
@@ -115,7 +112,8 @@ export default function AdminDashboardClient({
         duration: 3000,
       })
 
-      const response = await fetch("/api/admin/dashboard")
+      // Voeg refresh=true parameter toe om de cache te omzeilen
+      const response = await fetch("/api/admin/dashboard?refresh=true")
 
       if (!response.ok) {
         throw new Error(`Error refreshing dashboard data: ${response.status}`)
@@ -137,7 +135,7 @@ export default function AdminDashboardClient({
       })
     } catch (err) {
       console.error("Error refreshing dashboard data:", err)
-      setError("Er is een fout opgetreden bij het verversen van de dashboard gegevens")
+      setError("Er is een fout opgetreden bij het verversen van de dashboard gegevens.")
 
       // Toon fout toast
       toast({
@@ -148,6 +146,53 @@ export default function AdminDashboardClient({
       })
     } finally {
       setIsRefreshing(false)
+    }
+  }
+
+  // Functie om de cache te legen
+  const clearCache = async () => {
+    try {
+      setIsCacheClearing(true)
+      setError(null)
+
+      // Toon toast om aan te geven dat we de cache aan het legen zijn
+      toast({
+        title: "Cache legen",
+        description: "Bezig met het legen van de cache...",
+        duration: 3000,
+      })
+
+      // Leeg de volledige cache
+      const response = await fetch("/api/admin/cache", {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        throw new Error(`Error clearing cache: ${response.status}`)
+      }
+
+      // Toon succes toast
+      toast({
+        title: "Cache geleegd",
+        description: "De volledige cache is succesvol geleegd.",
+        duration: 3000,
+      })
+
+      // Ververs de dashboard data om de nieuwe data te tonen
+      await refreshDashboard()
+    } catch (err) {
+      console.error("Error clearing cache:", err)
+      setError("Er is een fout opgetreden bij het legen van de cache.")
+
+      // Toon fout toast
+      toast({
+        title: "Fout bij legen cache",
+        description: "Er is een fout opgetreden bij het legen van de cache.",
+        variant: "destructive",
+        duration: 5000,
+      })
+    } finally {
+      setIsCacheClearing(false)
     }
   }
 
@@ -201,6 +246,11 @@ export default function AdminDashboardClient({
               </button>
             ))}
 
+            <Button variant="outline" size="sm" onClick={clearCache} disabled={isCacheClearing} className="ml-2">
+              <RotateCcw className={`h-4 w-4 mr-2 ${isCacheClearing ? "animate-spin" : ""}`} />
+              {isCacheClearing ? "Cache legen..." : "Cache legen"}
+            </Button>
+
             <Button variant="outline" size="sm" onClick={refreshDashboard} disabled={isRefreshing} className="ml-2">
               <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
               {isRefreshing ? "Verversen..." : "Verversen"}
@@ -237,6 +287,17 @@ export default function AdminDashboardClient({
                 {item.label}
               </button>
             ))}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearCache}
+              disabled={isCacheClearing}
+              className="mx-4 mt-2 w-[calc(100%-2rem)]"
+            >
+              <RotateCcw className={`h-4 w-4 mr-2 ${isCacheClearing ? "animate-spin" : ""}`} />
+              {isCacheClearing ? "Cache legen..." : "Cache legen"}
+            </Button>
 
             <Button
               variant="outline"

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
@@ -447,6 +448,50 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
                 <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
               </div>
             )}
+
+            <div className="pt-4 border-t border-gray-200">
+              <div className="mb-4">
+                <p className="text-gray-700 font-medium mb-2">Beschikbare betalingsmethoden:</p>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="bg-gray-50 px-3 py-1 rounded-md flex items-center gap-2">
+                    <div className="h-5 w-10">
+                      <Image
+                        src="/ideal-logo-19535.svg"
+                        alt="iDEAL"
+                        width={60}
+                        height={40}
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">iDEAL</span>
+                  </div>
+                  <div className="bg-gray-50 px-3 py-1 rounded-md flex items-center gap-2">
+                    <div className="h-5 w-8">
+                      <Image
+                        src="/mastercard-logo.png"
+                        alt="Mastercard"
+                        width={60}
+                        height={40}
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">Creditcard</span>
+                  </div>
+                  <div className="bg-gray-50 px-3 py-1 rounded-md flex items-center gap-2">
+                    <div className="h-5 w-8">
+                      <Image
+                        src="/maestro-logo.png"
+                        alt="Maestro"
+                        width={60}
+                        height={40}
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">Maestro</span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? (

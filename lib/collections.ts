@@ -1,5 +1,10 @@
 import type { ClickFunnelsCollection, CourseCollection } from "./types"
-import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN, CLICKFUNNELS_WORKSPACE_ID } from "./config"
+import {
+  CLICKFUNNELS_API_TOKEN,
+  CLICKFUNNELS_SUBDOMAIN,
+  CLICKFUNNELS_WORKSPACE_ID,
+  CLICKFUNNELS_NUMERIC_WORKSPACE_ID,
+} from "./config"
 
 // Constante voor de prefix van cursus collections
 const COURSE_COLLECTION_PREFIX = "COURSE:"
@@ -13,7 +18,7 @@ export async function getClickFunnelsCollections(): Promise<ClickFunnelsCollecti
   }
 
   console.log(`Fetching collections from ClickFunnels API`)
-  const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_WORKSPACE_ID}/products/collections`
+  const API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/workspaces/${CLICKFUNNELS_NUMERIC_WORKSPACE_ID}/products/collections`
   console.log(`API URL: ${API_URL}`)
 
   const response = await fetch(API_URL, {
@@ -25,10 +30,30 @@ export async function getClickFunnelsCollections(): Promise<ClickFunnelsCollecti
   })
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => "Geen foutdetails beschikbaar")
     console.error(`ClickFunnels API error: ${response.status} ${response.statusText}`)
-    console.error(`Error details: ${errorText}`)
-    throw new Error(`ClickFunnels API error: ${response.status}. Controleer je API-toegang en credentials.`)
+
+    // Probeer alternatieve URL zonder workspace ID
+    console.log("Trying alternative collections endpoint...")
+    const ALT_API_URL = `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/collections`
+
+    const altResponse = await fetch(ALT_API_URL, {
+      headers: {
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    })
+
+    if (!altResponse.ok) {
+      const errorText = await altResponse.text().catch(() => "Geen foutdetails beschikbaar")
+      console.error(`Alternative ClickFunnels API error: ${altResponse.status} ${altResponse.statusText}`)
+      console.error(`Error details: ${errorText}`)
+      throw new Error(`ClickFunnels API error: ${altResponse.status}. Controleer je API-toegang en credentials.`)
+    }
+
+    const collections = await altResponse.json()
+    console.log(`Retrieved ${collections.length} collections from alternative endpoint`)
+    return collections
   }
 
   const collections = await response.json()

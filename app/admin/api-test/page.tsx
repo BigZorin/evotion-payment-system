@@ -20,11 +20,35 @@ export default function ApiTestPage() {
   )
 }
 
+// Functie om gevoelige gegevens te maskeren
+function maskSensitiveData(value: any, visibleStart = 3, visibleEnd = 2): string {
+  // Convert value to string and handle null/undefined
+  const strValue = value?.toString() || ""
+
+  // If empty string, return empty string
+  if (!strValue) return ""
+
+  // If string is too short, mask most of it
+  if (strValue.length <= visibleStart + visibleEnd) {
+    return strValue.substring(0, Math.min(2, strValue.length)) + "***"
+  }
+
+  const start = strValue.substring(0, visibleStart)
+  const end = strValue.substring(strValue.length - visibleEnd)
+  return `${start}***${end}`
+}
+
 async function ApiTest() {
   const subdomain = CLICKFUNNELS_SUBDOMAIN
   const workspaceId = CLICKFUNNELS_WORKSPACE_ID
   const numericWorkspaceId = CLICKFUNNELS_NUMERIC_WORKSPACE_ID
   const apiToken = CLICKFUNNELS_API_TOKEN
+
+  // Gemaskeerde versies voor weergave
+  const maskedSubdomain = maskSensitiveData(subdomain, 3, 0)
+  const maskedWorkspaceId = maskSensitiveData(workspaceId, 3, 3)
+  const maskedNumericWorkspaceId = maskSensitiveData(numericWorkspaceId?.toString() || "", 2, 2)
+  const maskedApiToken = apiToken ? maskSensitiveData(apiToken, 4, 4) : ""
 
   // Test API configuratie
   const isConfigured = !!subdomain && !!workspaceId && !!apiToken && !!numericWorkspaceId
@@ -42,7 +66,7 @@ async function ApiTest() {
   // Test collections API
   if (isConfigured) {
     try {
-      const COLLECTIONS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/collections`
+      const COLLECTIONS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${numericWorkspaceId}/products/collections`
       console.log(`Testing collections API: ${COLLECTIONS_API_URL}`)
 
       const collectionsResponse = await fetch(COLLECTIONS_API_URL, {
@@ -54,11 +78,28 @@ async function ApiTest() {
       })
 
       if (!collectionsResponse.ok) {
-        throw new Error(`API returned ${collectionsResponse.status} ${collectionsResponse.statusText}`)
-      }
+        // Als de eerste URL niet werkt, probeer een alternatieve URL
+        console.log("First collections endpoint failed, trying alternative...")
+        const ALT_COLLECTIONS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/products/collections`
 
-      collections = await collectionsResponse.json()
-      console.log(`Successfully fetched ${collections.length} collections`)
+        const altCollectionsResponse = await fetch(ALT_COLLECTIONS_API_URL, {
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            Accept: "application/json",
+          },
+          next: { revalidate: 60 },
+        })
+
+        if (!altCollectionsResponse.ok) {
+          throw new Error(`API returned ${altCollectionsResponse.status} ${altCollectionsResponse.statusText}`)
+        }
+
+        collections = await altCollectionsResponse.json()
+        console.log(`Successfully fetched ${collections.length} collections from alternative endpoint`)
+      } else {
+        collections = await collectionsResponse.json()
+        console.log(`Successfully fetched ${collections.length} collections`)
+      }
     } catch (error) {
       console.error("Error fetching collections:", error)
       collectionsError = error.message
@@ -144,18 +185,18 @@ async function ApiTest() {
         <h2 className="text-xl font-semibold mb-4">API Configuratie</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <p className="font-medium">API Token: {apiToken ? "✅ Geconfigureerd" : "❌ Ontbreekt"}</p>
-            <p className="font-medium">Subdomain: {subdomain ? `✅ ${subdomain}` : "❌ Ontbreekt"}</p>
-            <p className="font-medium">Workspace ID: {workspaceId ? `✅ ${workspaceId}` : "❌ Ontbreekt"}</p>
+            <p className="font-medium">API Token: {apiToken ? `✅ ${maskedApiToken}` : "❌ Ontbreekt"}</p>
+            <p className="font-medium">Subdomain: {subdomain ? `✅ ${maskedSubdomain}` : "❌ Ontbreekt"}</p>
+            <p className="font-medium">Workspace ID: {workspaceId ? `✅ ${maskedWorkspaceId}` : "❌ Ontbreekt"}</p>
             <p className="font-medium">
-              Numerieke Workspace ID: {numericWorkspaceId ? `✅ ${numericWorkspaceId}` : "❌ Ontbreekt"}
+              Numerieke Workspace ID: {numericWorkspaceId ? `✅ ${maskedNumericWorkspaceId}` : "❌ Ontbreekt"}
             </p>
           </div>
           <div>
             <p className="font-medium">API URL Voorbeeld:</p>
             <p className="text-sm text-gray-600 break-all">
-              https://{subdomain || "subdomain"}.myclickfunnels.com/api/v2/workspaces/
-              {numericWorkspaceId || "workspace_id"}/products
+              https://{maskedSubdomain || "subdomain"}.myclickfunnels.com/api/v2/workspaces/
+              {maskedNumericWorkspaceId || "workspace_id"}/products
             </p>
           </div>
         </div>
@@ -181,7 +222,7 @@ async function ApiTest() {
               {collections.slice(0, 6).map((collection) => (
                 <div key={collection.id} className="border p-3 rounded-md">
                   <p className="font-medium">{collection.name || "Naamloze collectie"}</p>
-                  <p className="text-sm text-gray-600">ID: {collection.id}</p>
+                  <p className="text-sm text-gray-600">ID: {maskSensitiveData(collection.id, 3, 3)}</p>
                 </div>
               ))}
             </div>
@@ -209,9 +250,11 @@ async function ApiTest() {
               {products.slice(0, 6).map((product) => (
                 <div key={product.id} className="border p-3 rounded-md">
                   <p className="font-medium">{product.name || "Naamloos product"}</p>
-                  <p className="text-sm text-gray-600">ID: {product.id}</p>
+                  <p className="text-sm text-gray-600">ID: {maskSensitiveData(product.id, 3, 3)}</p>
                   {product.default_variant_id && (
-                    <p className="text-sm text-gray-600">Default Variant ID: {product.default_variant_id}</p>
+                    <p className="text-sm text-gray-600">
+                      Default Variant ID: {maskSensitiveData(product.default_variant_id, 3, 3)}
+                    </p>
                   )}
                 </div>
               ))}
@@ -242,8 +285,10 @@ async function ApiTest() {
               {courses.slice(0, 6).map((course) => (
                 <div key={course.id} className="border p-3 rounded-md">
                   <p className="font-medium">{course.title || course.name || "Naamloze cursus"}</p>
-                  <p className="text-sm text-gray-600">ID: {course.id}</p>
-                  {course.public_id && <p className="text-sm text-gray-600">Public ID: {course.public_id}</p>}
+                  <p className="text-sm text-gray-600">ID: {maskSensitiveData(course.id, 3, 3)}</p>
+                  {course.public_id && (
+                    <p className="text-sm text-gray-600">Public ID: {maskSensitiveData(course.public_id, 3, 3)}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -258,8 +303,10 @@ async function ApiTest() {
               {memberships.slice(0, 6).map((membership) => (
                 <div key={membership.id} className="border p-3 rounded-md">
                   <p className="font-medium">{membership.title || membership.name || "Naamloze membership"}</p>
-                  <p className="text-sm text-gray-600">ID: {membership.id}</p>
-                  {membership.public_id && <p className="text-sm text-gray-600">Public ID: {membership.public_id}</p>}
+                  <p className="text-sm text-gray-600">ID: {maskSensitiveData(membership.id, 3, 3)}</p>
+                  {membership.public_id && (
+                    <p className="text-sm text-gray-600">Public ID: {maskSensitiveData(membership.public_id, 3, 3)}</p>
+                  )}
                 </div>
               ))}
             </div>

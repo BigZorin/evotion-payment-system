@@ -4,6 +4,8 @@ import { getProductWithVariantsAndPrices } from "@/lib/clickfunnels"
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const { id } = params
+    const url = new URL(request.url)
+    const refresh = url.searchParams.get("refresh") === "true"
 
     // Fetch product with variants and prices
     const product = await getProductWithVariantsAndPrices(id)

@@ -7,12 +7,23 @@ import {
   getClickFunnelsProducts,
 } from "@/lib/admin"
 import { products } from "@/lib/products"
+import { apiCache } from "@/lib/cache"
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Check if we need to bypass cache
+    const url = new URL(request.url)
+    const bypassCache = url.searchParams.get("refresh") === "true"
+
+    if (bypassCache) {
+      console.log("Bypassing cache and fetching fresh data")
+      // Invalidate all cache
+      apiCache.clear()
+    }
+
     // Parallel data ophalen voor betere performance
     const [stats, recentActivity, recentEnrollments, courses, clickfunnelsProducts] = await Promise.all([
-      getDashboardStats().catch((error) => {
+      getDashboardStats(bypassCache).catch((error) => {
         console.error("Error fetching dashboard stats:", error)
         return {
           products: { total: products.length, trend: 0, trendLabel: "sinds vorige maand" },
@@ -21,19 +32,19 @@ export async function GET() {
           enrollments: { total: 0, trend: 0, trendLabel: "sinds vorige week" },
         }
       }),
-      getRecentActivity(5).catch((error) => {
+      getRecentActivity(5, bypassCache).catch((error) => {
         console.error("Error fetching recent activity:", error)
         return []
       }),
-      getRecentEnrollments(5).catch((error) => {
+      getRecentEnrollments(5, bypassCache).catch((error) => {
         console.error("Error fetching recent enrollments:", error)
         return []
       }),
-      getCourses().catch((error) => {
+      getCourses(bypassCache).catch((error) => {
         console.error("Error fetching courses:", error)
         return []
       }),
-      getClickFunnelsProducts().catch((error) => {
+      getClickFunnelsProducts(bypassCache).catch((error) => {
         console.error("Error fetching ClickFunnels products:", error)
         return []
       }),

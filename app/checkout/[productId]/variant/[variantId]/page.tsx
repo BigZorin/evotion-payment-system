@@ -220,13 +220,31 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
               <h2 className="text-lg font-medium text-gray-900 mb-4">Veilig betalen met</h2>
               <div className="flex space-x-4 items-center">
                 <div className="h-8 w-16 relative">
-                  <img src="/ideal-logo-19535.svg" alt="iDEAL" className="h-full w-full object-contain" />
+                  <Image
+                    src="/ideal-logo-19535.svg"
+                    alt="iDEAL"
+                    width={60}
+                    height={40}
+                    className="h-full w-full object-contain"
+                  />
                 </div>
                 <div className="h-8 w-16 relative">
-                  <img src="/mastercard.svg" alt="Mastercard" className="h-full w-full object-contain" />
+                  <Image
+                    src="/mastercard-logo.png"
+                    alt="Mastercard"
+                    width={60}
+                    height={40}
+                    className="h-full w-full object-contain"
+                  />
                 </div>
                 <div className="h-8 w-16 relative">
-                  <img src="/maestro.svg" alt="Maestro" className="h-full w-full object-contain" />
+                  <Image
+                    src="/maestro-logo.png"
+                    alt="Maestro"
+                    width={60}
+                    height={40}
+                    className="h-full w-full object-contain"
+                  />
                 </div>
               </div>
             </div>

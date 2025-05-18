@@ -28,6 +28,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     const { id } = params
+    const url = new URL(request.url)
+    const refresh = url.searchParams.get("refresh") === "true"
 
     if (!id) {
       return NextResponse.json({ error: "Product ID is vereist" }, { status: 400 })
@@ -50,7 +52,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
         Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
         Accept: "application/json",
       },
-      cache: "no-store",
+      cache: "no-store", // Geen caching op HTTP-niveau
     })
 
     if (!response.ok) {
