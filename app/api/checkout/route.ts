@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
     let recurringIntervalCount = 1
 
     if (targetProduct.defaultPrice) {
-      amount = targetProduct.defaultPrice.amount
+      amount = Number.parseFloat(targetProduct.defaultPrice.amount)
       currency = targetProduct.defaultPrice.currency || "eur"
       isRecurring = targetProduct.defaultPrice.recurring || false
       if (isRecurring) {
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
         recurringIntervalCount = targetProduct.defaultPrice.recurring_interval_count || 1
       }
     } else if (targetProduct.prices && targetProduct.prices.length > 0) {
-      amount = targetProduct.prices[0].amount
+      amount = Number.parseFloat(targetProduct.prices[0].amount)
       currency = targetProduct.prices[0].currency || "eur"
       isRecurring = targetProduct.prices[0].recurring || false
       if (isRecurring) {
@@ -201,12 +201,13 @@ export async function POST(req: NextRequest) {
     } else {
       // Fallback prijs als er geen prijsinformatie beschikbaar is
       console.log("No price information found, using fallback price")
-      amount = 5000 // €50,00
+      amount = 50.0 // €50,00
     }
 
     // Controleer of het bedrag in centen of euro's is
-    // Als het bedrag kleiner is dan 10, gaan we ervan uit dat het in euro's is en vermenigvuldigen we met 100
-    const amountInCents = amount < 10 ? Math.round(amount * 100) : Math.round(amount)
+    // Als het bedrag een string is met een decimaalpunt, dan is het in euro's
+    // We moeten het omzetten naar centen voor Stripe
+    const amountInCents = Math.round(amount * 100)
     console.log(`Original amount: ${amount}, Amount in cents for Stripe: ${amountInCents}`)
 
     // Bepaal de success en cancel URLs

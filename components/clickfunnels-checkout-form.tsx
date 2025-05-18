@@ -13,8 +13,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { loadStripe } from "@stripe/stripe-js"
-// Vervang de import van STRIPE_PUBLISHABLE_KEY
-import { STRIPE_PUBLISHABLE_KEY } from "@/lib/stripe-client"
 
 // Formulier schema
 const formSchema = z.object({
@@ -41,36 +39,37 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>
 
 interface CheckoutFormProps {
-  productId: string
-  productName?: string
-  productDescription?: string
-  productPrice?: number
+  product: any
+  isSubscription?: boolean
 }
 
-export function ClickFunnelsCheckoutForm({
-  productId,
-  productName = "Product",
-  productDescription = "Beschrijving",
-  productPrice,
-}: CheckoutFormProps) {
+export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: CheckoutFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stripeError, setStripeError] = useState<string | null>(null)
   const [stripeLoaded, setStripeLoaded] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
+
+  // Haal de Stripe publishable key op uit de environment variables
+  const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 
   // Controleer of Stripe correct is geconfigureerd
   useEffect(() => {
     const checkStripeConfig = async () => {
       try {
-        if (!STRIPE_PUBLISHABLE_KEY) {
-          console.error("STRIPE_PUBLISHABLE_KEY is niet geconfigureerd")
+        console.log("Checking Stripe configuration...")
+
+        if (!stripePublishableKey) {
+          console.error("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is niet geconfigureerd")
           setStripeError("Stripe is niet correct geconfigureerd. Neem contact op met de beheerder.")
           return false
         }
 
+        console.log("Stripe publishable key is configured:", stripePublishableKey.substring(0, 8) + "...")
+
         // Probeer Stripe te laden
-        const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY)
+        const stripePromise = loadStripe(stripePublishableKey)
         const stripe = await stripePromise
 
         if (!stripe) {
@@ -79,6 +78,7 @@ export function ClickFunnelsCheckoutForm({
           return false
         }
 
+        console.log("Stripe loaded successfully")
         setStripeLoaded(true)
         return true
       } catch (error) {
@@ -89,7 +89,7 @@ export function ClickFunnelsCheckoutForm({
     }
 
     checkStripeConfig()
-  }, [])
+  }, [stripePublishableKey])
 
   // Formulier initialisatie
   const form = useForm<FormValues>({
@@ -117,6 +117,16 @@ export function ClickFunnelsCheckoutForm({
     try {
       setIsSubmitting(true)
       setError(null)
+      setDebugInfo(null)
+
+      // Log de product informatie
+      console.log("Product information:", {
+        id: product.id,
+        public_id: product.public_id,
+        name: product.name,
+        prices: product.prices,
+        defaultPrice: product.defaultPrice,
+      })
 
       // Controleer of Stripe correct is geladen
       if (!stripeLoaded) {
@@ -124,6 +134,15 @@ export function ClickFunnelsCheckoutForm({
         setIsSubmitting(false)
         return
       }
+
+      // Bepaal de product ID
+      const productId = product.public_id || product.id.toString()
+
+      if (!productId) {
+        throw new Error("Product ID is niet beschikbaar")
+      }
+
+      console.log(`Using product ID: ${productId} for checkout`)
 
       // Bereid de checkout data voor
       const checkoutData = {
@@ -135,6 +154,8 @@ export function ClickFunnelsCheckoutForm({
         customerBirthDate: data.customerBirthDate || undefined,
         companyDetails: data.isCompany ? data.companyDetails : undefined,
       }
+
+      console.log("Sending checkout data to API:", checkoutData)
 
       // Stuur de checkout data naar de API
       const response = await fetch("/api/checkout", {
@@ -148,18 +169,24 @@ export function ClickFunnelsCheckoutForm({
       // Verwerk de API response
       const result = await response.json()
 
+      console.log("API response:", result)
+
       if (!response.ok) {
         throw new Error(result.error || "Er is een fout opgetreden bij het verwerken van je betaling")
       }
 
       // Redirect naar Stripe Checkout
       if (result.sessionId) {
+        console.log(`Received Stripe session ID: ${result.sessionId}`)
+
         // Laad Stripe
-        const stripe = await loadStripe(STRIPE_PUBLISHABLE_KEY!)
+        const stripe = await loadStripe(stripePublishableKey!)
 
         if (!stripe) {
           throw new Error("Stripe kon niet worden geladen")
         }
+
+        console.log("Redirecting to Stripe checkout...")
 
         // Redirect naar de Stripe Checkout pagina
         const { error } = await stripe.redirectToCheckout({
@@ -168,6 +195,12 @@ export function ClickFunnelsCheckoutForm({
 
         if (error) {
           console.error("Stripe redirect error:", error)
+          setDebugInfo({
+            message: "Stripe redirect error",
+            error: error,
+            sessionId: result.sessionId,
+          })
+
           // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
           router.push(`/checkout/redirect?session_id=${result.sessionId}`)
           return
@@ -178,6 +211,11 @@ export function ClickFunnelsCheckoutForm({
     } catch (error: any) {
       console.error("Checkout error:", error)
       setError(error.message || "Er is een fout opgetreden bij het verwerken van je betaling")
+      setDebugInfo({
+        message: "Checkout error",
+        error: error.toString(),
+        stack: error.stack,
+      })
       setIsSubmitting(false)
     }
   }
@@ -212,8 +250,8 @@ export function ClickFunnelsCheckoutForm({
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
-        <CardTitle>{productName}</CardTitle>
-        <CardDescription>{productDescription}</CardDescription>
+        <CardTitle>{product.name}</CardTitle>
+        <CardDescription>{product.description || "Vul je gegevens in om door te gaan naar betaling"}</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -404,6 +442,12 @@ export function ClickFunnelsCheckoutForm({
               </Alert>
             )}
 
+            {debugInfo && (
+              <div className="text-xs bg-gray-100 p-2 rounded overflow-auto max-h-32">
+                <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+              </div>
+            )}
+
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
@@ -413,7 +457,7 @@ export function ClickFunnelsCheckoutForm({
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {productPrice ? `Betaal €${(productPrice / 100).toFixed(2)}` : "Doorgaan naar betaling"}
+                  Doorgaan naar betaling
                 </>
               )}
             </Button>

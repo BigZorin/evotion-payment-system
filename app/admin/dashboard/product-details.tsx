@@ -1,14 +1,28 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Copy, ExternalLink } from "lucide-react"
+import { ArrowLeft, Copy, ExternalLink, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { ClickFunnelsProduct } from "@/lib/admin"
+import type { CourseCollection } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
+
+// Cursus mapping - dit zou idealiter uit een API komen, maar voor nu hardcoden we het
+const COURSE_ID_TO_NAME: Record<string, string> = {
+  eWbLVk: "12-Weken Vetverlies Programma",
+  vgDnxN: "Uitleg van Oefeningen",
+  JMaGxK: "Evotion-Coaching App Handleiding",
+  "basic-course-1": "Basis Cursus",
+  "premium-course-1": "Premium Cursus 1",
+  "premium-course-2": "Premium Cursus 2",
+  "vip-course-1": "VIP Cursus 1",
+  "vip-course-2": "VIP Cursus 2",
+  "vip-course-3": "VIP Cursus 3",
+}
 
 interface ProductDetailsProps {
   productId: string
@@ -17,7 +31,9 @@ interface ProductDetailsProps {
 
 export default function ProductDetails({ productId, onBack }: ProductDetailsProps) {
   const [product, setProduct] = useState<ClickFunnelsProduct | null>(null)
+  const [courses, setCourses] = useState<CourseCollection[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingCourses, setIsLoadingCourses] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
 
@@ -45,8 +61,30 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
       }
     }
 
+    async function fetchProductCourses() {
+      setIsLoadingCourses(true)
+
+      try {
+        const response = await fetch(`/api/admin/products/${productId}/courses`)
+
+        if (!response.ok) {
+          console.error(`Error fetching courses: ${response.status}`)
+          return
+        }
+
+        const data = await response.json()
+        console.log("Product courses:", data)
+        setCourses(data.courses || [])
+      } catch (err) {
+        console.error("Error fetching product courses:", err)
+      } finally {
+        setIsLoadingCourses(false)
+      }
+    }
+
     if (productId) {
       fetchProductDetails()
+      fetchProductCourses()
     }
   }, [productId])
 
@@ -246,6 +284,50 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
               Betaallink testen
             </Button>
           </CardFooter>
+        </Card>
+
+        {/* Courses Card - Collection Based */}
+        <Card className="md:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Cursussen</CardTitle>
+              <CardDescription>Cursussen die bij dit product horen (via collections)</CardDescription>
+            </div>
+            <BookOpen className="h-5 w-5 text-[#1e1839]" />
+          </CardHeader>
+          <CardContent>
+            {isLoadingCourses ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-32 w-full" />
+                ))}
+              </div>
+            ) : courses.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {courses.map((course, index) => (
+                  <Card key={index} className="border border-gray-200">
+                    <CardHeader className="p-4 pb-2">
+                      <CardTitle className="text-base">{course.courseName}</CardTitle>
+                      <CardDescription>ID: {course.courseId}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-4 pt-2">
+                      <Badge className="mb-2 bg-purple-50 text-purple-700 border-purple-200">
+                        Collection: {course.collectionName}
+                      </Badge>
+                      <Badge className="bg-blue-50 text-blue-700 border-blue-200">Inbegrepen bij dit product</Badge>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 text-center text-gray-500 border border-dashed border-gray-200 rounded-md">
+                <p>Geen cursussen gevonden voor dit product</p>
+                <p className="text-sm mt-1">
+                  Voeg dit product toe aan een collection met de naam "COURSE: [Cursusnaam]" om cursussen te koppelen.
+                </p>
+              </div>
+            )}
+          </CardContent>
         </Card>
 
         {/* Variants Card */}

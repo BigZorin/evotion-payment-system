@@ -84,3 +84,33 @@ export interface StripeCheckoutOptions {
   cancel_url: string
   metadata?: Record<string, string>
 }
+
+// Nieuwe types voor collections
+export interface ClickFunnelsCollection {
+  id: number
+  public_id: string | null
+  workspace_id: number
+  name: string
+  description: string | null
+  collection_type: string | null
+  product_ids: number[] | null
+  sort_method: string | null
+  archived: boolean | null
+  image_id: string | null
+  visible_in_store: boolean | null
+  current_path: string | null
+  seo_title: string | null
+  seo_description: string | null
+  seo_indexable: string | null
+  social_image_id: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface CourseCollection {
+  collectionId: number
+  collectionName: string
+  courseId: string
+  courseName: string
+  productIds: number[]
+}
