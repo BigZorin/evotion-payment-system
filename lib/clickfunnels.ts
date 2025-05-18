@@ -1,9 +1,9 @@
-// Verwijder de 'use server' directive van het bestand niveau
-// en voeg het toe aan elke functie die als Server Action moet worden gebruikt
+"use server"
 
-import type { ClickFunnelsContact } from "./types"
 import { fetchWithRateLimiting } from "./api-helpers"
-import { isValidVariant, isValidPrice } from "./clickfunnels-helpers"
+import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN } from "./config"
+import { apiCache } from "./cache"
+import type { ClickFunnelsContact } from "./types"
 
 // Deze waarden moeten worden ingesteld als omgevingsvariabelen
 const CLICKFUNNELS_SUBDOMAIN_OLD = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
@@ -15,24 +15,38 @@ const CLICKFUNNELS_ACCOUNT_ID = process.env.CLICKFUNNELS_ACCOUNT_ID || ""
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 1000
 
-import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN } from "./config"
-import { apiCache } from "./cache"
-
 export interface ClickfunnelsProduct {
   id: number
-  public_id: string
+  public_id: string | null
   name: string
   description: string
+  current_path: string | null
+  archived: boolean | null
+  visible_in_store: boolean | null
+  visible_in_customer_center: boolean | null
+  image_id: string | null
+  seo_title: string | null
+  seo_description: string | null
+  default_variant_id: number
+  created_at: string | null
+  updated_at: string | null
+  variant_properties: Array<{
+    id: number
+    name: string
+  }> | null
+  price_ids: number[] | null
   variant_ids: string[]
+  // Toegevoegde velden voor prijsinformatie
+  variant?: ClickfunnelsVariant
   variants?: ClickfunnelsVariant[]
   prices?: ClickfunnelsPrice[]
-  // ... other properties
+  defaultPrice?: ClickfunnelsPrice
 }
 
 export interface ClickfunnelsVariant {
   id: number
-  public_id: string
-  product_id: number
+  public_id?: string
+  product_id?: number
   name: string
   description: string | null
   sku: string | null
@@ -49,8 +63,8 @@ export interface ClickfunnelsVariant {
 
 export interface ClickfunnelsPrice {
   id: number
-  public_id: string
-  variant_id: number
+  public_id?: string
+  variant_id?: number
   amount: number
   currency: string
   recurring: boolean
@@ -61,13 +75,63 @@ export interface ClickfunnelsPrice {
   // ... other properties
 }
 
-// Exporteer de helper functies
-export { isValidVariant, isValidPrice }
+// Helper functies voor ClickFunnels die geen Server Actions zijn
 
-// Voeg 'use server' toe aan elke functie die als Server Action moet worden gebruikt
+/**
+ * Controleert of een variant geldig is (niet verwijderd en heeft een prijs)
+ * @param variant De variant om te controleren
+ * @returns true als de variant geldig is, anders false
+ */
+export function isValidVariant(variant: ClickfunnelsVariant): boolean {
+  // Controleer of de variant niet gearchiveerd of verwijderd is
+  if (variant.archived === true || variant.deleted === true) {
+    console.log(`Variant ${variant.id} is archived or deleted, skipping`)
+    return false
+  }
+
+  // Controleer of de variant prijzen heeft
+  if (!variant.price_ids || variant.price_ids.length === 0) {
+    console.log(`Variant ${variant.id} has no price_ids, skipping`)
+    return false
+  }
+
+  // Als de variant prices heeft, controleer dan of er geldige prijzen zijn
+  if (variant.prices && variant.prices.length > 0) {
+    const validPrices = variant.prices.filter(
+      (price) =>
+        price.archived !== true && price.deleted !== true && price.amount !== undefined && price.amount !== null,
+    )
+
+    if (validPrices.length === 0) {
+      console.log(`Variant ${variant.id} has no valid prices, skipping`)
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
+ * Controleert of een prijs geldig is (niet verwijderd en heeft een bedrag)
+ * @param price De prijs om te controleren
+ * @returns true als de prijs geldig is, anders false
+ */
+export function isValidPrice(price: ClickfunnelsPrice): boolean {
+  // Controleer of de prijs niet gearchiveerd of verwijderd is
+  if (price.archived === true || price.deleted === true) {
+    return false
+  }
+
+  // Controleer of de prijs een bedrag heeft
+  if (price.amount === undefined || price.amount === null) {
+    return false
+  }
+
+  return true
+}
+
+// Functie om alle producten op te halen uit ClickFunnels
 export async function getClickfunnelsProducts(): Promise<ClickfunnelsProduct[]> {
-  "use server"
-
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
       throw new Error("ClickFunnels API token of subdomain ontbreekt")
@@ -93,9 +157,8 @@ export async function getClickfunnelsProducts(): Promise<ClickfunnelsProduct[]> 
   }
 }
 
+// Functie om een product op te halen uit ClickFunnels
 export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsProduct> {
-  "use server"
-
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
       throw new Error("ClickFunnels API token of subdomain ontbreekt")
@@ -121,9 +184,8 @@ export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsPr
   }
 }
 
+// Functie om een variant op te halen uit ClickFunnels
 export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVariant> {
-  "use server"
-
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
       throw new Error("ClickFunnels API token of subdomain ontbreekt")
@@ -149,9 +211,8 @@ export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVa
   }
 }
 
+// Functie om een prijs op te halen uit ClickFunnels
 export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPrice> {
-  "use server"
-
   try {
     console.log(`Fetching ClickFunnels price with ID: ${id}`)
 
@@ -180,9 +241,8 @@ export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPric
   }
 }
 
+// Functie om een product met varianten en prijzen op te halen
 export async function getProductWithVariantsAndPrices(productId: string): Promise<ClickfunnelsProduct> {
-  "use server"
-
   try {
     console.log(`Fetching product with variants and prices for product ID: ${productId}`)
 
@@ -242,9 +302,8 @@ export async function getProductWithVariantsAndPrices(productId: string): Promis
   }
 }
 
+// Functie om alle producten met varianten op te halen
 export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[]> {
-  "use server"
-
   try {
     // Fetch all products
     const products = await getClickfunnelsProducts()
@@ -306,8 +365,6 @@ export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[
 
 // Functie om de cache voor een specifiek product te invalideren
 export async function invalidateProductCache(productId: string): Promise<void> {
-  "use server"
-
   // Invalideer de product cache
   apiCache.delete(`products:${productId}`)
 
@@ -324,8 +381,6 @@ export async function invalidateProductCache(productId: string): Promise<void> {
  * @returns Een object met het resultaat van de operatie
  */
 export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
-  "use server"
-
   if (!API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }
@@ -424,12 +479,11 @@ export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
           await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
           continue
         }
+
+        // Als dit de laatste poging is, geef dan de fout terug
+        return { success: false, error: String(error) }
       }
     }
-
-    // Als we hier komen, zijn alle pogingen mislukt
-    console.error("All upsert attempts failed:", lastError)
-    return { success: false, error: String(lastError) }
   } catch (error) {
     console.error("Error upserting ClickFunnels contact:", error)
     return { success: false, error: String(error) }
@@ -444,8 +498,6 @@ export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
 export async function getContactByEmail(
   email: string,
 ): Promise<{ success: boolean; contactId?: number; error?: string }> {
-  "use server"
-
   if (!API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }

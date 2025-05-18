@@ -10,6 +10,9 @@ import {
 import { ClickFunnelsCheckoutForm } from "@/components/clickfunnels-checkout-form"
 import { formatCurrency } from "@/lib/utils"
 
+// Voeg revalidatie toe om ervoor te zorgen dat prijsupdates snel zichtbaar zijn
+export const revalidate = 60 // Revalideer elke 60 seconden
+
 // Metadata voor de pagina
 export async function generateMetadata({ params }: { params: { productId: string; variantId: string } }) {
   try {
