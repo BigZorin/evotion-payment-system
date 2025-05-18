@@ -1,119 +1,101 @@
 "use server"
 
-/**
- * Helper functies voor API-aanroepen met rate limiting en foutafhandeling
- */
+import { apiCache } from "./cache"
 
 // Constanten voor rate limiting
-const API_DELAY_MS = 1000 // 1 seconde wachten tussen API-aanroepen
-const MAX_RETRIES = 3 // Maximaal 3 pogingen bij fouten
-
-// Cache voor API-aanroepen
-const apiCache = new Map<string, { data: any; timestamp: number }>()
-const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minuten cache TTL
+const API_DELAY_MS = 500 // Wachttijd tussen API-aanroepen
+const MAX_RETRIES = 3 // Maximaal aantal herhaalpogingen
+const INITIAL_RETRY_DELAY = 1000 // Initiële wachttijd voor herhaalpogingen
 
 /**
- * Voert een API-aanroep uit met rate limiting, caching en foutafhandeling
- * @param url De URL om aan te roepen
- * @param options De fetch opties
- * @param cacheKey Een optionele cache key
- * @param cacheTtl Een optionele cache TTL in ms (standaard 5 minuten)
- * @param bypassCache Een optionele boolean om de cache te negeren
- * @returns De API-response als JSON
+ * Haalt data op van een API met rate limiting en caching
+ * @param url De URL om op te halen
+ * @param options Fetch opties
+ * @param cacheKey De sleutel voor caching
+ * @param cacheTTL De time-to-live voor de cache in milliseconden
+ * @returns De opgehaalde data
  */
 export async function fetchWithRateLimiting<T>(
   url: string,
-  options: RequestInit,
+  options: RequestInit = {},
   cacheKey?: string,
-  cacheTtl: number = CACHE_TTL_MS,
-  bypassCache = false,
+  cacheTTL: number = 5 * 60 * 1000, // 5 minuten standaard
 ): Promise<T> {
-  // Check cache first if we have a cache key and aren't bypassing cache
-  if (cacheKey && !bypassCache) {
-    const cached = apiCache.get(cacheKey)
-    if (cached && Date.now() - cached.timestamp < cacheTtl) {
-      console.log(`Using cached data for ${cacheKey}`)
-      return cached.data as T
+  // Controleer eerst de cache als een cacheKey is opgegeven
+  if (cacheKey) {
+    const cachedData = apiCache.get<T>(cacheKey)
+    if (cachedData) {
+      console.log(`Cache hit for ${cacheKey}`)
+      return cachedData
     }
+    console.log(`Cache miss for ${cacheKey}`)
   }
+
+  // Wacht een korte tijd om rate limiting te voorkomen
+  await new Promise((resolve) => setTimeout(resolve, API_DELAY_MS))
 
   let lastError: Error | null = null
+  let retryDelay = INITIAL_RETRY_DELAY
 
-  // Retry loop
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  // Probeer de aanroep meerdere keren met exponentiële backoff
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      console.log(`API call to ${url} (attempt ${attempt}/${MAX_RETRIES})`)
+      const response = await fetch(url, {
+        ...options,
+        cache: "no-store", // Geen HTTP caching
+      })
 
-      const response = await fetch(url, options)
-
-      // Handle rate limiting (429 Too Many Requests)
+      // Controleer op rate limiting (429 Too Many Requests)
       if (response.status === 429) {
-        const retryAfter = Number.parseInt(response.headers.get("Retry-After") || "60", 10)
-        console.log(`Rate limited. Waiting ${retryAfter} seconds before retry...`)
+        const retryAfter = response.headers.get("Retry-After")
+        const waitTime = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : retryDelay
 
-        // Wait for the specified time before retrying
-        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000))
-        continue // Retry after waiting
+        console.warn(`Rate limited (429). Waiting ${waitTime}ms before retry.`)
+        await new Promise((resolve) => setTimeout(resolve, waitTime))
+
+        // Verhoog de retry delay voor de volgende poging (exponentiële backoff)
+        retryDelay *= 2
+        continue
       }
 
-      // Handle other errors
+      // Controleer op andere fouten
       if (!response.ok) {
         const errorText = await response.text()
-        throw new Error(`API error ${response.status} ${response.statusText}: ${errorText}`)
+        throw new Error(`API error ${response.status}: ${errorText}`)
       }
 
-      // Parse JSON response
-      const data = await response.json()
+      // Parse de response als JSON
+      const text = await response.text()
+      let data: T
 
-      // Cache the result if we have a cache key
+      try {
+        data = JSON.parse(text) as T
+      } catch (e) {
+        console.error(`Invalid JSON response: ${text.substring(0, 100)}...`)
+        throw new Error(`Invalid JSON response: ${e.message}`)
+      }
+
+      // Sla de data op in de cache als een cacheKey is opgegeven
       if (cacheKey) {
-        apiCache.set(cacheKey, { data, timestamp: Date.now() })
+        apiCache.set(cacheKey, data, cacheTTL)
       }
 
-      // Wait before the next API call to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, API_DELAY_MS))
-
-      return data as T
+      return data
     } catch (error) {
-      console.error(`Error in API call to ${url} (attempt ${attempt}/${MAX_RETRIES}):`, error)
+      console.error(`Attempt ${attempt + 1}/${MAX_RETRIES} failed:`, error)
       lastError = error instanceof Error ? error : new Error(String(error))
 
-      // If this is not the last attempt, wait before retrying
-      if (attempt < MAX_RETRIES) {
-        const backoffTime = API_DELAY_MS * Math.pow(2, attempt - 1) // Exponential backoff
-        console.log(`Retrying in ${backoffTime}ms...`)
-        await new Promise((resolve) => setTimeout(resolve, backoffTime))
+      // Als dit niet de laatste poging is, wacht dan en probeer opnieuw
+      if (attempt < MAX_RETRIES - 1) {
+        console.log(`Retrying in ${retryDelay}ms...`)
+        await new Promise((resolve) => setTimeout(resolve, retryDelay))
+
+        // Verhoog de retry delay voor de volgende poging (exponentiële backoff)
+        retryDelay *= 2
       }
     }
   }
 
-  // If we get here, all attempts failed
-  throw lastError || new Error(`Failed to fetch from ${url} after ${MAX_RETRIES} attempts`)
-}
-
-/**
- * Verwijdert een item uit de cache
- * @param cacheKey De cache key om te verwijderen
- */
-export function invalidateCache(cacheKey: string): void {
-  apiCache.delete(cacheKey)
-  console.log(`Cache invalidated for ${cacheKey}`)
-}
-
-/**
- * Verwijdert alle items uit de cache
- */
-export function clearCache(): void {
-  apiCache.clear()
-  console.log("Complete cache cleared")
-}
-
-/**
- * Geeft de huidige cache status terug
- */
-export function getCacheStatus(): { keys: string[]; size: number } {
-  return {
-    keys: Array.from(apiCache.keys()),
-    size: apiCache.size,
-  }
+  // Als we hier komen, zijn alle pogingen mislukt
+  throw lastError || new Error("Failed after multiple attempts")
 }
