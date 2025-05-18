@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { ClickFunnelsProduct } from "@/lib/admin"
+import { formatCurrency } from "@/lib/utils"
 
 interface ProductDetailsProps {
   productId: string
@@ -29,11 +30,13 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
         const response = await fetch(`/api/admin/products/${productId}`)
 
         if (!response.ok) {
-          throw new Error(`Error fetching product: ${response.status}`)
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `Error fetching product: ${response.status}`)
         }
 
         const data = await response.json()
-        setProduct(data)
+        console.log("Product details:", data)
+        setProduct(data.product || data)
       } catch (err) {
         console.error("Error fetching product details:", err)
         setError("Er is een fout opgetreden bij het ophalen van de productgegevens.")
@@ -58,19 +61,6 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
     navigator.clipboard.writeText(link)
     setCopiedLink(link)
     setTimeout(() => setCopiedLink(null), 2000)
-  }
-
-  // Format price for display
-  const formatPrice = (price?: number, currency = "EUR") => {
-    if (!price) return "Prijs niet beschikbaar"
-
-    // Als de prijs kleiner is dan 10, gaan we ervan uit dat het in euro's is en vermenigvuldigen we met 100
-    const priceInCents = price < 10 ? price * 100 : price
-
-    return new Intl.NumberFormat("nl-NL", {
-      style: "currency",
-      currency: currency,
-    }).format(priceInCents / 100)
   }
 
   if (isLoading) {
@@ -201,9 +191,9 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
               <p className="text-sm font-medium text-[#1e1839]">Standaard prijs</p>
               <p className="text-lg font-semibold text-[#1e1839]">
                 {product.defaultPrice
-                  ? formatPrice(product.defaultPrice.amount)
+                  ? formatCurrency(product.defaultPrice.amount)
                   : product.prices && product.prices.length > 0
-                    ? formatPrice(product.prices[0].amount)
+                    ? formatCurrency(product.prices[0].amount)
                     : "Prijs niet beschikbaar"}
               </p>
             </div>
@@ -215,7 +205,7 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
                   {product.prices.map((price, index) => (
                     <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded-md">
                       <span className="text-sm">{price.name || `Prijs ${index + 1}`}</span>
-                      <span className="font-medium">{formatPrice(price.amount)}</span>
+                      <span className="font-medium">{formatCurrency(price.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -276,7 +266,7 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
                       <div className="text-sm">
                         <p className="font-medium text-[#1e1839]">Prijs:</p>
                         {variant.prices && variant.prices.length > 0 ? (
-                          <p>{formatPrice(variant.prices[0].amount)}</p>
+                          <p>{formatCurrency(variant.prices[0].amount)}</p>
                         ) : (
                           <p className="text-gray-500">Prijs niet beschikbaar</p>
                         )}

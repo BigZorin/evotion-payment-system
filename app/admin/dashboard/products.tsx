@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import type { ClickFunnelsProduct } from "@/lib/admin"
+import { formatCurrency } from "@/lib/utils"
 
 interface ProductsTabProps {
   initialProducts: ClickFunnelsProduct[]
@@ -39,23 +40,6 @@ export default function ProductsTab({ initialProducts, onSelectProduct, searchTe
 
     setFilteredProducts(filtered)
   }, [localSearchTerm, products])
-
-  // Format price for display
-  const formatPrice = (price?: number, currency = "EUR") => {
-    if (!price) return "Prijs niet beschikbaar"
-
-    // Verbeterde detectie: als de prijs kleiner is dan 10, gaan we ervan uit dat het in euro's is
-    // Anders gaan we ervan uit dat het in centen is
-    // Dit is een heuristiek die werkt voor de meeste gevallen
-    const priceInCents = price < 10 ? price * 100 : price
-
-    return new Intl.NumberFormat("nl-NL", {
-      style: "currency",
-      currency: currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(priceInCents / 100)
-  }
 
   return (
     <div>
@@ -98,9 +82,9 @@ export default function ProductsTab({ initialProducts, onSelectProduct, searchTe
                 <div className="text-sm text-gray-500 mb-2">
                   <span className="font-medium text-[#1e1839]">Prijs: </span>
                   {product.defaultPrice
-                    ? formatPrice(product.defaultPrice.amount)
+                    ? formatCurrency(product.defaultPrice.amount)
                     : product.prices && product.prices.length > 0
-                      ? formatPrice(product.prices[0].amount)
+                      ? formatCurrency(product.prices[0].amount)
                       : "Prijs niet beschikbaar"}
                 </div>
                 <div className="text-sm text-gray-500">

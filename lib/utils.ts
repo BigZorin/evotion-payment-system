@@ -6,33 +6,39 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Formatteert een bedrag als valuta
- * @param amount Het bedrag dat geformatteerd moet worden
+ * Formatteert een bedrag naar een leesbare valutanotatie
+ *
+ * @param amount Het bedrag dat geformatteerd moet worden (kan een string of number zijn)
  * @param currency De valuta (standaard EUR)
  * @returns Geformatteerd bedrag als string
  */
-export function formatCurrency(amount: number | string | undefined, currency = "EUR"): string {
+export function formatCurrency(amount: string | number | undefined | null, currency = "EUR"): string {
   if (amount === undefined || amount === null) {
     return "Prijs niet beschikbaar"
   }
 
   // Converteer naar nummer als het een string is
-  const numericAmount = typeof amount === "string" ? Number.parseFloat(amount) : amount
+  let numericAmount: number
+
+  if (typeof amount === "string") {
+    // Vervang komma's door punten voor consistente parsing
+    const normalizedAmount = amount.replace(",", ".")
+    numericAmount = Number.parseFloat(normalizedAmount)
+  } else {
+    numericAmount = amount
+  }
 
   if (isNaN(numericAmount)) {
     return "Ongeldige prijs"
   }
 
-  // Detecteer of het bedrag in centen of euro's is
-  // Als het bedrag kleiner is dan 10, gaan we ervan uit dat het in euro's is
-  // Anders gaan we ervan uit dat het in centen is
-  // Dit is een heuristiek die werkt voor de meeste gevallen
-  const amountInEuros = numericAmount < 10 ? numericAmount : numericAmount / 100
+  // ClickFunnels API geeft prijzen als decimale getallen (bijv. "100.00")
+  // We hoeven dus NIET standaard te delen door 100
 
   return new Intl.NumberFormat("nl-NL", {
     style: "currency",
     currency: currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amountInEuros)
+  }).format(numericAmount)
 }
