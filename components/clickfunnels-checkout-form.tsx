@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { loadStripe } from "@stripe/stripe-js"
+import { formatCurrency } from "@/lib/utils"
 
 // Formulier schema
 const formSchema = z.object({
@@ -223,6 +224,22 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
   // Toon bedrijfsgegevens als isCompany is aangevinkt
   const watchIsCompany = form.watch("isCompany")
 
+  // Bereken de prijs om weer te geven
+  let priceDisplay = "Prijs niet beschikbaar"
+  if (product.selectedVariant?.prices && product.selectedVariant.prices.length > 0) {
+    priceDisplay = formatCurrency(product.selectedVariant.prices[0].amount)
+    console.log(`Using variant price from prices array: ${priceDisplay}`)
+  } else if (product.price) {
+    priceDisplay = formatCurrency(product.price)
+    console.log(`Using product price: ${priceDisplay}`)
+  } else if (product.defaultPrice?.amount) {
+    priceDisplay = formatCurrency(product.defaultPrice.amount)
+    console.log(`Using default price: ${priceDisplay}`)
+  } else if (product.prices && product.prices.length > 0) {
+    priceDisplay = formatCurrency(product.prices[0].amount)
+    console.log(`Using first price from prices array: ${priceDisplay}`)
+  }
+
   // Als er een Stripe configuratiefout is, toon een foutmelding
   if (stripeError) {
     return (
@@ -251,7 +268,11 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
         <CardTitle>{product.name}</CardTitle>
-        <CardDescription>{product.description || "Vul je gegevens in om door te gaan naar betaling"}</CardDescription>
+        <CardDescription>
+          <div className="mt-2 font-semibold text-lg">{priceDisplay}</div>
+          {isSubscription && <div className="text-sm mt-1 text-gray-500">Abonnement - automatisch verlengd</div>}
+          <div className="mt-3 text-sm text-gray-600">Vul je gegevens in om door te gaan naar betaling</div>
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>

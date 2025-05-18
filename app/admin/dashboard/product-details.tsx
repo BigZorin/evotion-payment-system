@@ -1,16 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Copy, ExternalLink, BookOpen, AlertTriangle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ArrowLeft, ExternalLink, RefreshCw, Copy, BookOpen } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
+import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import type { ClickFunnelsProduct } from "@/lib/admin"
-import type { CourseCollection } from "@/lib/types"
-import { formatCurrency } from "@/lib/utils"
 
 interface ProductDetailsProps {
   productId: string
@@ -18,79 +16,117 @@ interface ProductDetailsProps {
 }
 
 export default function ProductDetails({ productId, onBack }: ProductDetailsProps) {
-  const [product, setProduct] = useState<ClickFunnelsProduct | null>(null)
-  const [courses, setCourses] = useState<CourseCollection[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true)
+  const [product, setProduct] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [courseError, setCourseError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
 
   useEffect(() => {
-    async function fetchProductDetails() {
-      setIsLoading(true)
+    fetchProductDetails()
+  }, [productId])
+
+  const fetchProductDetails = async () => {
+    try {
+      setLoading(true)
       setError(null)
 
-      try {
-        // Voeg refresh=true toe om de cache te omzeilen
-        const response = await fetch(`/api/admin/products/${productId}?refresh=true`)
-
-        if (!response.ok) {
-          throw new Error(`Error fetching product: ${response.status}`)
-        }
-
-        const data = await response.json()
-        setProduct(data.product || data)
-      } catch (err) {
-        console.error("Error fetching product details:", err)
-        setError("Er is een fout opgetreden bij het ophalen van de productgegevens.")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    if (productId) {
-      fetchProductDetails()
-    }
-  }, [productId])
-
-  useEffect(() => {
-    fetchProductCourses()
-  }, [productId])
-
-  async function fetchProductCourses() {
-    if (!productId) return
-
-    setIsLoadingCourses(true)
-    setCourseError(null)
-
-    try {
-      // Gebruik de directe API route voor betere betrouwbaarheid en voeg refresh=true toe
-      const response = await fetch(`/api/admin/products/${productId}/courses-direct?refresh=true`, {
-        cache: "no-store",
-      })
+      console.log(`Fetching product details for ID: ${productId}`)
+      const response = await fetch(`/api/admin/products/${productId}?refresh=true`)
 
       if (!response.ok) {
-        throw new Error(`Fout bij het ophalen van cursussen: ${response.status}`)
+        const errorText = await response.text()
+        console.error(`Error response: ${errorText}`)
+        throw new Error(`Error fetching product details: ${response.status}`)
       }
 
       const data = await response.json()
-
-      if (Array.isArray(data.courses)) {
-        setCourses(data.courses)
-      } else {
-        setCourses([])
-      }
+      console.log("Product details received:", data)
+      setProduct(data)
     } catch (err) {
-      console.error("Error fetching product courses:", err)
-      setCourseError(`Fout bij het ophalen van cursussen. Probeer het later opnieuw.`)
+      console.error("Error loading product details:", err)
+      setError("Er is een fout opgetreden bij het laden van de productgegevens.")
     } finally {
-      setIsLoadingCourses(false)
+      setLoading(false)
     }
   }
 
+  const refreshProductDetails = async () => {
+    try {
+      setRefreshing(true)
+      setError(null)
+
+      // Toon toast om aan te geven dat we aan het verversen zijn
+      toast({
+        title: "Product verversen",
+        description: "Bezig met het ophalen van de laatste productgegevens...",
+        duration: 3000,
+      })
+
+      // Voeg refresh=true parameter toe om de cache te omzeilen
+      const response = await fetch(`/api/admin/products/${productId}?refresh=true`)
+
+      if (!response.ok) {
+        throw new Error(`Error refreshing product details: ${response.status}`)
+      }
+
+      const data = await response.json()
+      console.log("Refreshed product details:", data)
+      setProduct(data)
+
+      // Toon succes toast
+      toast({
+        title: "Product ververst",
+        description: "De productgegevens zijn succesvol bijgewerkt.",
+        duration: 3000,
+      })
+    } catch (err) {
+      console.error("Error refreshing product details:", err)
+      setError("Er is een fout opgetreden bij het verversen van de productgegevens.")
+
+      // Toon fout toast
+      toast({
+        title: "Fout bij verversen",
+        description: "Er is een fout opgetreden bij het verversen van de productgegevens.",
+        variant: "destructive",
+        duration: 5000,
+      })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const formatCurrency = (amount: number | string | undefined | null, currency = "EUR") => {
+    if (amount === undefined || amount === null) {
+      return "Prijs niet beschikbaar"
+    }
+
+    // Converteer naar nummer als het een string is
+    let numericAmount: number
+
+    if (typeof amount === "string") {
+      // Vervang komma's door punten voor consistente parsing
+      const normalizedAmount = amount.replace(",", ".")
+      numericAmount = Number.parseFloat(normalizedAmount)
+    } else {
+      numericAmount = amount
+    }
+
+    if (isNaN(numericAmount)) {
+      return "Ongeldige prijs"
+    }
+
+    // ClickFunnels API geeft prijzen als hele getallen (bijv. 257 voor €257)
+    return new Intl.NumberFormat("nl-NL", {
+      style: "currency",
+      currency: currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(numericAmount)
+  }
+
   // Generate payment link
-  const generatePaymentLink = (product: ClickFunnelsProduct) => {
+  const generatePaymentLink = (product: any) => {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin
     return `${baseUrl}/checkout/${product.id}`
   }
@@ -99,65 +135,70 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
   const copyToClipboard = (link: string) => {
     navigator.clipboard.writeText(link)
     setCopiedLink(link)
+    toast({
+      title: "Link gekopieerd",
+      description: "De betaallink is gekopieerd naar het klembord.",
+      duration: 2000,
+    })
     setTimeout(() => setCopiedLink(null), 2000)
   }
 
-  // Functie om productgegevens te verversen
-  const refreshProductDetails = async () => {
-    if (!productId) return
-
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      // Voeg refresh=true toe om de cache te omzeilen
-      const response = await fetch(`/api/admin/products/${productId}?refresh=true`)
-
-      if (!response.ok) {
-        throw new Error(`Error fetching product: ${response.status}`)
-      }
-
-      const data = await response.json()
-      setProduct(data.product || data)
-
-      // Ververs ook de cursussen
-      await fetchProductCourses()
-    } catch (err) {
-      console.error("Error refreshing product details:", err)
-      setError("Er is een fout opgetreden bij het verversen van de productgegevens.")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  if (isLoading) {
+  if (loading) {
     return (
-      <div>
-        <Button variant="ghost" className="mb-6" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Terug naar producten
-        </Button>
-        <div className="space-y-4">
+      <div className="space-y-4">
+        <div className="flex items-center mb-6">
+          <Button variant="ghost" size="sm" onClick={onBack} className="mr-4">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Terug naar producten
+          </Button>
           <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-4 w-32" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-            <Skeleton className="h-64 w-full" />
-            <Skeleton className="h-64 w-full" />
-          </div>
         </div>
+
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-3/4 mb-2" />
+            <Skeleton className="h-4 w-1/2" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-40" />
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div>
-        <Button variant="ghost" className="mb-6" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Terug naar producten
-        </Button>
+      <div className="space-y-4">
+        <div className="flex items-center mb-6">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Terug naar producten
+          </Button>
+        </div>
+
         <Card className="border-red-200 bg-red-50">
-          <CardContent className="p-6">
-            <p className="text-red-700">{error}</p>
-          </CardContent>
+          <CardHeader>
+            <CardTitle className="text-red-700">Fout bij laden product</CardTitle>
+            <CardDescription className="text-red-600">{error}</CardDescription>
+          </CardHeader>
+          <CardFooter>
+            <Button onClick={fetchProductDetails}>Probeer opnieuw</Button>
+          </CardFooter>
         </Card>
       </div>
     )
@@ -165,127 +206,270 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
 
   if (!product) {
     return (
-      <div>
-        <Button variant="ghost" className="mb-6" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Terug naar producten
-        </Button>
+      <div className="space-y-4">
+        <div className="flex items-center mb-6">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Terug naar producten
+          </Button>
+        </div>
+
         <Card>
-          <CardContent className="p-6">
-            <p className="text-gray-500">Product niet gevonden</p>
-          </CardContent>
+          <CardHeader>
+            <CardTitle>Product niet gevonden</CardTitle>
+            <CardDescription>Het product met ID {productId} kon niet worden gevonden.</CardDescription>
+          </CardHeader>
+          <CardFooter>
+            <Button onClick={onBack}>Terug naar producten</Button>
+          </CardFooter>
         </Card>
       </div>
     )
   }
 
+  // Debug info
+  console.log("Product object:", product)
+  console.log("Product has prices:", product.prices?.length || 0)
+  console.log("Product has variants:", product.variants?.length || 0)
+  console.log("Product has courses:", product.courses?.length || 0)
+
   const paymentLink = generatePaymentLink(product)
   const isCopied = copiedLink === paymentLink
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <Button variant="ghost" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Terug naar producten
-        </Button>
-        <Button variant="outline" onClick={refreshProductDetails} className="ml-auto">
-          <RefreshCw className="mr-2 h-4 w-4" /> Verversen
-        </Button>
-      </div>
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-[#1e1839]">{product.name}</h2>
-          <p className="text-[#1e1839]/70">Product ID: {product.id}</p>
-        </div>
-        <div className="flex gap-2 mt-4 md:mt-0">
-          <Button
-            variant="outline"
-            className="text-[#1e1839] border-[#1e1839] hover:bg-[#1e1839] hover:text-white"
-            onClick={() => {
-              window.open(paymentLink, "_blank")
-            }}
-          >
-            Bekijk <ExternalLink className="ml-1 h-4 w-4" />
+    <div className="space-y-6">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Button variant="ghost" size="sm" onClick={onBack} className="mr-4">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Terug naar producten
           </Button>
-          <Button className="bg-[#1e1839] hover:bg-[#1e1839]/90">Bewerken</Button>
+          <h2 className="text-2xl font-bold">{product.name}</h2>
         </div>
+        <Button variant="outline" size="sm" onClick={refreshProductDetails} disabled={refreshing}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Verversen..." : "Verversen"}
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Product Details Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Productgegevens</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm font-medium text-[#1e1839]">Naam</p>
-              <p className="text-sm text-gray-600">{product.name}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#1e1839]">Public ID</p>
-              <p className="text-sm text-gray-600">{product.public_id || "Niet beschikbaar"}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#1e1839]">Status</p>
-              <div className="flex gap-2 mt-1">
-                {product.visible_in_store && (
-                  <Badge className="bg-green-50 text-green-700 border-green-200">Zichtbaar in winkel</Badge>
-                )}
-                {product.visible_in_customer_center && (
-                  <Badge className="bg-blue-50 text-blue-700 border-blue-200">Zichtbaar in klantomgeving</Badge>
-                )}
-                {product.archived && <Badge className="bg-gray-50 text-gray-700 border-gray-200">Gearchiveerd</Badge>}
-              </div>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#1e1839]">Aangemaakt op</p>
-              <p className="text-sm text-gray-600">
-                {product.created_at ? new Date(product.created_at).toLocaleDateString("nl-NL") : "Onbekend"}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#1e1839]">Laatst bijgewerkt</p>
-              <p className="text-sm text-gray-600">
-                {product.updated_at ? new Date(product.updated_at).toLocaleDateString("nl-NL") : "Onbekend"}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Pricing Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Prijzen en betaallinks</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm font-medium text-[#1e1839]">Standaard prijs</p>
-              <p className="text-lg font-semibold text-[#1e1839]">
-                {product.defaultPrice
-                  ? formatCurrency(product.defaultPrice.amount)
-                  : product.prices && product.prices.length > 0
-                    ? formatCurrency(product.prices[0].amount)
-                    : "Prijs niet beschikbaar"}
-              </p>
-            </div>
-
-            {product.prices && product.prices.length > 0 && (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Product Details Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Productgegevens</CardTitle>
+              <CardDescription>Basisinformatie over het product</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div>
-                <p className="text-sm font-medium text-[#1e1839] mb-2">Alle prijzen</p>
-                <div className="space-y-2">
-                  {product.prices.map((price, index) => (
-                    <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded-md">
-                      <span className="text-sm">{price.name || `Prijs ${index + 1}`}</span>
-                      <span className="font-medium">{formatCurrency(price.amount)}</span>
+                <h4 className="text-sm font-medium text-gray-500">Product ID</h4>
+                <p>{product.id}</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-500">Publieke ID</h4>
+                <p>{product.public_id || "Geen publieke ID"}</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-500">Beschrijving</h4>
+                <p>{product.description || "Geen beschrijving"}</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-500">Status</h4>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <Badge variant={product.archived ? "destructive" : "outline"}>
+                    {product.archived ? "Gearchiveerd" : "Actief"}
+                  </Badge>
+                  <Badge variant={product.visible_in_store ? "default" : "outline"}>
+                    {product.visible_in_store ? "Zichtbaar in winkel" : "Onzichtbaar in winkel"}
+                  </Badge>
+                </div>
+              </div>
+              {product.current_path && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-500">URL</h4>
+                  <a
+                    href={product.current_path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 flex items-center"
+                  >
+                    {product.current_path}
+                    <ExternalLink className="h-4 w-4 ml-1" />
+                  </a>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Variants Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Varianten</CardTitle>
+              <CardDescription>Beschikbare varianten van dit product</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {product.variants && product.variants.length > 0 ? (
+                <div className="space-y-4">
+                  {product.variants.map((variant: any) => (
+                    <Card key={variant.id} className="border border-gray-200">
+                      <CardHeader className="pb-2">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <CardTitle className="text-lg">{variant.name}</CardTitle>
+                            <CardDescription>{variant.description || "Geen beschrijving"}</CardDescription>
+                          </div>
+                          <Badge variant={variant.default ? "default" : "outline"}>
+                            {variant.default ? "Standaard" : "Variant"}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pb-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <h4 className="text-sm font-medium text-gray-500">Variant ID</h4>
+                            <p>{variant.id}</p>
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-medium text-gray-500">SKU</h4>
+                            <p>{variant.sku || "Geen SKU"}</p>
+                          </div>
+                        </div>
+
+                        {/* Prijzen voor deze variant */}
+                        {variant.prices && variant.prices.length > 0 && (
+                          <div className="mt-4">
+                            <h4 className="text-sm font-medium text-gray-500 mb-2">Prijzen</h4>
+                            <div className="grid grid-cols-1 gap-2">
+                              {variant.prices.map((price: any) => (
+                                <div
+                                  key={price.id}
+                                  className="flex justify-between items-center p-2 bg-gray-50 rounded-md"
+                                >
+                                  <div>
+                                    <span className="font-medium">{formatCurrency(price.amount, price.currency)}</span>
+                                    {price.recurring && (
+                                      <span className="text-sm text-gray-500 ml-2">
+                                        / {price.interval_count || 1} {price.interval || "maand"}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <Badge variant="outline" className="text-xs">
+                                    {price.recurring ? "Terugkerend" : "Eenmalig"}
+                                  </Badge>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 italic">Geen varianten gevonden voor dit product.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Courses Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <BookOpen className="h-5 w-5 mr-2" />
+                Gekoppelde cursussen
+              </CardTitle>
+              <CardDescription>Cursussen die aan dit product zijn gekoppeld via collections</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {product.courses && product.courses.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {product.courses.map((course: any, index: number) => (
+                    <Card key={index} className="border border-gray-200">
+                      <CardHeader className="p-4 pb-2">
+                        <CardTitle className="text-base">{course.courseName}</CardTitle>
+                        <CardDescription>ID: {course.courseId}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-2">
+                        <Badge className="mb-2 bg-purple-50 text-purple-700 border-purple-200">
+                          Collection: {course.collectionName}
+                        </Badge>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 text-center text-gray-500 border border-dashed border-gray-200 rounded-md">
+                  <p>Geen cursussen gevonden voor dit product</p>
+                  <p className="text-sm mt-1">
+                    Voeg dit product toe aan een collection met de naam "COURSE: [Cursusnaam]" om cursussen te koppelen.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Standaard prijs Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Standaard prijs</CardTitle>
+              <CardDescription>Huidige prijs voor dit product</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center">
+                {product.defaultPrice ? (
+                  <p className="text-3xl font-bold">{formatCurrency(product.defaultPrice.amount)}</p>
+                ) : product.prices && product.prices.length > 0 ? (
+                  <p className="text-3xl font-bold">{formatCurrency(product.prices[0].amount)}</p>
+                ) : (
+                  <p className="text-gray-500">Prijs niet beschikbaar</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Prijzen Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Alle prijzen</CardTitle>
+              <CardDescription>Alle prijzen voor dit product</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {product.prices && product.prices.length > 0 ? (
+                <div className="space-y-3">
+                  {product.prices.map((price: any) => (
+                    <div key={price.id} className="p-3 bg-gray-50 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{formatCurrency(price.amount, price.currency)}</span>
+                        <Badge variant="outline">{price.recurring ? "Terugkerend" : "Eenmalig"}</Badge>
+                      </div>
+                      {price.recurring && (
+                        <p className="text-sm text-gray-500 mt-1">
+                          Elke {price.interval_count || 1} {price.interval || "maand"}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">ID: {price.id}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <Alert>
+                  <AlertTitle>Geen prijzen gevonden</AlertTitle>
+                  <AlertDescription>Dit product heeft geen prijzen. Voeg prijzen toe in ClickFunnels.</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
 
-            <div className="pt-4">
-              <p className="text-sm font-medium text-[#1e1839] mb-2">Betaallink</p>
+          {/* Betaallinks Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Betaallinks</CardTitle>
+              <CardDescription>Deel deze link om het product te verkopen</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="flex items-center gap-2">
                 <Input
                   value={paymentLink}
@@ -306,126 +490,17 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button
-              className="w-full bg-[#1e1839] hover:bg-[#1e1839]/90"
-              onClick={() => {
-                window.open(paymentLink, "_blank")
-              }}
-            >
-              Betaallink testen
-            </Button>
-          </CardFooter>
-        </Card>
-
-        {/* Courses Card - Collection Based */}
-        <Card className="md:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Cursussen</CardTitle>
-              <CardDescription>Cursussen die bij dit product horen (via collections)</CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              {isLoadingCourses ? (
-                <Skeleton className="h-5 w-5 rounded-full" />
-              ) : (
-                <Button variant="ghost" size="icon" onClick={fetchProductCourses} title="Vernieuwen">
-                  <RefreshCw className="h-5 w-5 text-[#1e1839]" />
-                </Button>
-              )}
-              <BookOpen className="h-5 w-5 text-[#1e1839]" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {courseError && (
-              <Alert variant="destructive" className="mb-4">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Fout bij het ophalen van cursussen</AlertTitle>
-                <AlertDescription>
-                  <p>{courseError}</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    onClick={() => {
-                      window.open("/admin/api-test", "_blank")
-                    }}
-                  >
-                    API configuratie testen
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isLoadingCourses ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-32 w-full" />
-                ))}
-              </div>
-            ) : courses.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {courses.map((course, index) => (
-                  <Card key={index} className="border border-gray-200">
-                    <CardHeader className="p-4 pb-2">
-                      <CardTitle className="text-base">{course.courseName}</CardTitle>
-                      <CardDescription>ID: {course.courseId}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-2">
-                      <Badge className="mb-2 bg-purple-50 text-purple-700 border-purple-200">
-                        Collection: {course.collectionName}
-                      </Badge>
-                      <Badge className="bg-blue-50 text-blue-700 border-blue-200">Inbegrepen bij dit product</Badge>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 text-center text-gray-500 border border-dashed border-gray-200 rounded-md">
-                <p>Geen cursussen gevonden voor dit product</p>
-                <p className="text-sm mt-1">
-                  Voeg dit product toe aan een collection met de naam "COURSE: [Cursusnaam]" om cursussen te koppelen.
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Variants Card */}
-        {product.variants && product.variants.length > 0 && (
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle>Productvarianten</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {product.variants.map((variant) => (
-                  <Card key={variant.id} className="border border-gray-200">
-                    <CardHeader className="p-4 pb-2">
-                      <CardTitle className="text-base">{variant.name}</CardTitle>
-                      <CardDescription>ID: {variant.id}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-2">
-                      <div className="text-sm">
-                        <p className="font-medium text-[#1e1839]">Prijs:</p>
-                        {variant.prices && variant.prices.length > 0 ? (
-                          <p>{formatCurrency(variant.prices[0].amount)}</p>
-                        ) : (
-                          <p className="text-gray-500">Prijs niet beschikbaar</p>
-                        )}
-                      </div>
-                      {variant.default && (
-                        <Badge className="mt-2 bg-blue-50 text-blue-700 border-blue-200">Standaard variant</Badge>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  window.open(paymentLink, "_blank")
+                }}
+              >
+                Betaallink testen
+              </Button>
             </CardContent>
           </Card>
-        )}
+        </div>
       </div>
     </div>
   )

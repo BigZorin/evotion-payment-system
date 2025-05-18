@@ -22,6 +22,10 @@ interface AdminDashboardClientProps {
   initialCourses: any[]
   initialClickfunnelsProducts: any[]
   initialLocalProducts: any[]
+  initialApiStatus?: {
+    clickfunnels: boolean
+    stripe?: boolean
+  }
 }
 
 export default function AdminDashboardClient({
@@ -31,6 +35,7 @@ export default function AdminDashboardClient({
   initialCourses,
   initialClickfunnelsProducts,
   initialLocalProducts,
+  initialApiStatus,
 }: AdminDashboardClientProps) {
   const [activeTab, setActiveTab] = useState("products")
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
@@ -55,9 +60,13 @@ export default function AdminDashboardClient({
   const [error, setError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<{
     clickfunnels: boolean
-  }>({
-    clickfunnels: true,
-  })
+    stripe?: boolean
+  }>(
+    initialApiStatus || {
+      clickfunnels: true,
+      stripe: true,
+    },
+  )
 
   // Check if we're on mobile
   useEffect(() => {
@@ -93,8 +102,22 @@ export default function AdminDashboardClient({
         setRecentEnrollments(data.recentEnrollments || initialRecentEnrollments)
         setCourses(data.courses || initialCourses)
 
+        // Update API status
+        if (data.apiStatus) {
+          setApiStatus(data.apiStatus)
+        }
+
         // Check if we got products from ClickFunnels
         if (data.clickfunnelsProducts && data.clickfunnelsProducts.length > 0) {
+          console.log("Received ClickFunnels products:", data.clickfunnelsProducts.length)
+
+          // Log details about prices and variants
+          const productsWithPrices = data.clickfunnelsProducts.filter(productHasPrices)
+          const productsWithVariants = data.clickfunnelsProducts.filter(productHasVariants)
+
+          console.log(`Products with prices: ${productsWithPrices.length}/${data.clickfunnelsProducts.length}`)
+          console.log(`Products with variants: ${productsWithVariants.length}/${data.clickfunnelsProducts.length}`)
+
           setClickfunnelsProducts(data.clickfunnelsProducts)
           setApiStatus((prev) => ({ ...prev, clickfunnels: true }))
         } else {
@@ -117,6 +140,15 @@ export default function AdminDashboardClient({
         // Use local products as fallback
         setClickfunnelsProducts(initialLocalProducts || [])
         setApiStatus((prev) => ({ ...prev, clickfunnels: false }))
+
+        // Show error toast
+        toast({
+          title: "Fout bij laden dashboard",
+          description:
+            "Er is een fout opgetreden bij het laden van de dashboard gegevens. We gebruiken lokale gegevens als fallback.",
+          variant: "destructive",
+          duration: 5000,
+        })
       } finally {
         setIsLoading(false)
       }
@@ -124,6 +156,16 @@ export default function AdminDashboardClient({
 
     loadDashboardData()
   }, []) // Leeg dependency array zorgt ervoor dat dit alleen bij eerste render gebeurt
+
+  // Functie om te controleren of een product prijzen heeft
+  const productHasPrices = (product: any) => {
+    return product.prices && product.prices.length > 0
+  }
+
+  // Functie om te controleren of een product varianten heeft
+  const productHasVariants = (product: any) => {
+    return product.variants && product.variants.length > 0
+  }
 
   // Functie om dashboard data te verversen
   const refreshDashboard = async () => {
@@ -151,6 +193,11 @@ export default function AdminDashboardClient({
       setRecentActivity(data.recentActivity)
       setRecentEnrollments(data.recentEnrollments)
       setCourses(data.courses)
+
+      // Update API status
+      if (data.apiStatus) {
+        setApiStatus(data.apiStatus)
+      }
 
       // Check if we got products from ClickFunnels
       if (data.clickfunnelsProducts && data.clickfunnelsProducts.length > 0) {
@@ -270,12 +317,20 @@ export default function AdminDashboardClient({
           </div>
 
           {/* API Status Indicator */}
-          {!apiStatus.clickfunnels && (
-            <div className="hidden md:flex items-center text-amber-600 bg-amber-50 px-3 py-1 rounded-full text-xs">
-              <AlertTriangle className="h-3.5 w-3.5 mr-1" />
-              ClickFunnels API niet beschikbaar
-            </div>
-          )}
+          <div className="hidden md:flex items-center space-x-2">
+            {!apiStatus.clickfunnels && (
+              <div className="flex items-center text-amber-600 bg-amber-50 px-3 py-1 rounded-full text-xs">
+                <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                ClickFunnels API niet beschikbaar
+              </div>
+            )}
+            {apiStatus.stripe === false && (
+              <div className="flex items-center text-amber-600 bg-amber-50 px-3 py-1 rounded-full text-xs">
+                <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                Stripe API niet beschikbaar
+              </div>
+            )}
+          </div>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-6">
@@ -318,12 +373,20 @@ export default function AdminDashboardClient({
         </div>
 
         {/* API Status Indicator (Mobile) */}
-        {!apiStatus.clickfunnels && (
-          <div className="md:hidden flex items-center justify-center text-amber-600 bg-amber-50 px-3 py-1 text-xs">
-            <AlertTriangle className="h-3.5 w-3.5 mr-1" />
-            ClickFunnels API niet beschikbaar
-          </div>
-        )}
+        <div className="md:hidden flex flex-wrap items-center justify-center gap-2 px-2 py-1">
+          {!apiStatus.clickfunnels && (
+            <div className="flex items-center text-amber-600 bg-amber-50 px-3 py-1 rounded-full text-xs">
+              <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+              ClickFunnels API niet beschikbaar
+            </div>
+          )}
+          {apiStatus.stripe === false && (
+            <div className="flex items-center text-amber-600 bg-amber-50 px-3 py-1 rounded-full text-xs">
+              <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+              Stripe API niet beschikbaar
+            </div>
+          )}
+        </div>
 
         {/* Mobile Navigation */}
         {isMobileMenuOpen && (
@@ -401,16 +464,29 @@ export default function AdminDashboardClient({
       )}
 
       {/* API Status Warning */}
-      {!apiStatus.clickfunnels && (
+      {(!apiStatus.clickfunnels || apiStatus.stripe === false) && (
         <div className="container mx-auto px-4 py-4">
-          <Alert variant="warning" className="bg-amber-50 text-amber-800 border-amber-200">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>ClickFunnels API niet beschikbaar</AlertTitle>
-            <AlertDescription>
-              We kunnen momenteel geen verbinding maken met de ClickFunnels API. We gebruiken lokale productgegevens als
-              fallback. Probeer later opnieuw of neem contact op met de beheerder.
-            </AlertDescription>
-          </Alert>
+          {!apiStatus.clickfunnels && (
+            <Alert variant="warning" className="bg-amber-50 text-amber-800 border-amber-200 mb-4">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>ClickFunnels API niet beschikbaar</AlertTitle>
+              <AlertDescription>
+                We kunnen momenteel geen verbinding maken met de ClickFunnels API. We gebruiken lokale productgegevens
+                als fallback. Probeer later opnieuw of neem contact op met de beheerder.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {apiStatus.stripe === false && (
+            <Alert variant="warning" className="bg-amber-50 text-amber-800 border-amber-200">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Stripe API niet beschikbaar</AlertTitle>
+              <AlertDescription>
+                We kunnen momenteel geen verbinding maken met de Stripe API. Betalingsstatistieken en recente
+                activiteiten zijn mogelijk niet beschikbaar. Probeer later opnieuw of neem contact op met de beheerder.
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
       )}
 

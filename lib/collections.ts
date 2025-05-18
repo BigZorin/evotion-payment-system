@@ -76,15 +76,23 @@ export async function getCourseCollections(): Promise<CourseCollection[]> {
 // Functie om cursussen voor een product op te halen
 export async function getCoursesForProduct(productId: string): Promise<CourseCollection[]> {
   try {
+    console.log(`Fetching courses for product ID: ${productId}`)
     const collections = await getClickFunnelsCollections()
+    console.log(`Found ${collections.length} total collections`)
 
     // Filter collections die beginnen met "COURSE:"
     const courseCollections = collections.filter((collection) => collection.name?.startsWith("COURSE:"))
+    console.log(`Found ${courseCollections.length} course collections`)
 
     // Filter collections die dit product bevatten
-    const matchingCollections = courseCollections.filter((collection) =>
-      collection.product_ids?.includes(Number(productId)),
-    )
+    const matchingCollections = courseCollections.filter((collection) => {
+      const productIdNum = Number(productId)
+      const hasProduct = collection.product_ids?.includes(productIdNum)
+      console.log(`Collection ${collection.name} has product ${productId}: ${hasProduct}`)
+      return hasProduct
+    })
+
+    console.log(`Found ${matchingCollections.length} matching collections for product ${productId}`)
 
     // Map naar het CourseCollection formaat
     const courses: CourseCollection[] = matchingCollections.map((collection) => {
@@ -101,6 +109,7 @@ export async function getCoursesForProduct(productId: string): Promise<CourseCol
       }
     })
 
+    console.log(`Returning ${courses.length} courses for product ${productId}`)
     return courses
   } catch (error) {
     console.error("Error fetching courses for product:", error)

@@ -63,116 +63,128 @@ async function ApiTest() {
   let memberships = []
   let membershipsError = null
 
-  // Test collections API
+  // Helper functie om API-aanroepen te doen met betere foutafhandeling
+  async function fetchWithErrorHandling(url: string, options: RequestInit, errorPrefix: string) {
+    try {
+      console.log(`Testing API: ${url}`)
+      const response = await fetch(url, options)
+
+      if (!response.ok) {
+        // Controleer op rate limiting (429)
+        if (response.status === 429) {
+          const retryAfter = response.headers.get("Retry-After") || "60"
+          throw new Error(`Rate limit overschreden. Probeer opnieuw na ${retryAfter} seconden.`)
+        }
+
+        // Andere HTTP fouten
+        const errorText = await response.text()
+        const errorMessage = errorText.length > 100 ? `${errorText.substring(0, 100)}...` : errorText
+        throw new Error(`API returned ${response.status} ${response.statusText}: ${errorMessage}`)
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error(`${errorPrefix}:`, error)
+      throw error
+    }
+  }
+
+  // Test collections API met verbeterde foutafhandeling
   if (isConfigured) {
     try {
       const COLLECTIONS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${numericWorkspaceId}/products/collections`
-      console.log(`Testing collections API: ${COLLECTIONS_API_URL}`)
-
-      const collectionsResponse = await fetch(COLLECTIONS_API_URL, {
+      const options = {
         headers: {
           Authorization: `Bearer ${apiToken}`,
           Accept: "application/json",
         },
-        next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
-      })
+        next: { revalidate: 60 },
+      }
 
-      if (!collectionsResponse.ok) {
+      try {
+        collections = await fetchWithErrorHandling(COLLECTIONS_API_URL, options, "Error fetching collections")
+        console.log(`Successfully fetched ${collections.length} collections`)
+      } catch (error) {
         // Als de eerste URL niet werkt, probeer een alternatieve URL
         console.log("First collections endpoint failed, trying alternative...")
         const ALT_COLLECTIONS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/products/collections`
 
-        const altCollectionsResponse = await fetch(ALT_COLLECTIONS_API_URL, {
+        collections = await fetchWithErrorHandling(
+          ALT_COLLECTIONS_API_URL,
+          options,
+          "Error fetching collections from alternative endpoint",
+        )
+        console.log(`Successfully fetched ${collections.length} collections from alternative endpoint`)
+      }
+    } catch (error) {
+      collectionsError = error.message
+    }
+
+    // Wacht 1 seconde tussen API-aanroepen om rate limiting te voorkomen
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    // Test products API met numerieke workspace ID
+    try {
+      const PRODUCTS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${numericWorkspaceId}/products`
+
+      products = await fetchWithErrorHandling(
+        PRODUCTS_API_URL,
+        {
           headers: {
             Authorization: `Bearer ${apiToken}`,
             Accept: "application/json",
           },
           next: { revalidate: 60 },
-        })
-
-        if (!altCollectionsResponse.ok) {
-          throw new Error(`API returned ${altCollectionsResponse.status} ${altCollectionsResponse.statusText}`)
-        }
-
-        collections = await altCollectionsResponse.json()
-        console.log(`Successfully fetched ${collections.length} collections from alternative endpoint`)
-      } else {
-        collections = await collectionsResponse.json()
-        console.log(`Successfully fetched ${collections.length} collections`)
-      }
-    } catch (error) {
-      console.error("Error fetching collections:", error)
-      collectionsError = error.message
-    }
-
-    // Test products API met numerieke workspace ID
-    try {
-      const PRODUCTS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${numericWorkspaceId}/products`
-      console.log(`Testing products API: ${PRODUCTS_API_URL}`)
-
-      const productsResponse = await fetch(PRODUCTS_API_URL, {
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          Accept: "application/json",
         },
-        next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
-      })
-
-      if (!productsResponse.ok) {
-        throw new Error(`API returned ${productsResponse.status} ${productsResponse.statusText}`)
-      }
-
-      products = await productsResponse.json()
+        "Error fetching products",
+      )
       console.log(`Successfully fetched ${products.length} products`)
     } catch (error) {
-      console.error("Error fetching products:", error)
       productsError = error.message
     }
+
+    // Wacht 1 seconde tussen API-aanroepen om rate limiting te voorkomen
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // Test courses API
     try {
       const COURSES_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/courses`
-      console.log(`Testing courses API: ${COURSES_API_URL}`)
 
-      const coursesResponse = await fetch(COURSES_API_URL, {
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          Accept: "application/json",
-        },
-        next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
-      })
-
-      if (!coursesResponse.ok) {
-        throw new Error(`API returned ${coursesResponse.status} ${coursesResponse.statusText}`)
-      }
-
-      courses = await coursesResponse.json()
-      console.log(`Successfully fetched ${courses.length} courses`)
-    } catch (error) {
-      console.error("Error fetching courses:", error)
-      coursesError = error.message
-
-      // Als courses API faalt, probeer memberships API
-      try {
-        const MEMBERSHIPS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/memberships`
-        console.log(`Testing memberships API: ${MEMBERSHIPS_API_URL}`)
-
-        const membershipsResponse = await fetch(MEMBERSHIPS_API_URL, {
+      courses = await fetchWithErrorHandling(
+        COURSES_API_URL,
+        {
           headers: {
             Authorization: `Bearer ${apiToken}`,
             Accept: "application/json",
           },
-          next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
-        })
+          next: { revalidate: 60 },
+        },
+        "Error fetching courses",
+      )
+      console.log(`Successfully fetched ${courses.length} courses`)
+    } catch (error) {
+      coursesError = error.message
 
-        if (!membershipsResponse.ok) {
-          throw new Error(`API returned ${membershipsResponse.status} ${membershipsResponse.statusText}`)
-        }
+      // Wacht 1 seconde tussen API-aanroepen om rate limiting te voorkomen
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
-        memberships = await membershipsResponse.json()
+      // Als courses API faalt, probeer memberships API
+      try {
+        const MEMBERSHIPS_API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/memberships`
+
+        memberships = await fetchWithErrorHandling(
+          MEMBERSHIPS_API_URL,
+          {
+            headers: {
+              Authorization: `Bearer ${apiToken}`,
+              Accept: "application/json",
+            },
+            next: { revalidate: 60 },
+          },
+          "Error fetching memberships",
+        )
         console.log(`Successfully fetched ${memberships.length} memberships`)
       } catch (error) {
-        console.error("Error fetching memberships:", error)
         membershipsError = error.message
       }
     }
@@ -317,6 +329,25 @@ async function ApiTest() {
         ) : (
           <p>Geen cursussen of memberships gevonden of API niet geconfigureerd.</p>
         )}
+      </div>
+
+      {/* Rate Limiting Waarschuwing */}
+      <div className="bg-blue-50 p-6 rounded-lg shadow-md">
+        <h2 className="text-xl font-semibold mb-4 text-blue-800">API Rate Limiting Informatie</h2>
+        <div className="text-blue-700">
+          <p className="mb-2">
+            <strong>⚠️ Let op:</strong> De ClickFunnels API heeft rate limiting. Als je te veel aanvragen doet in een
+            korte tijd, krijg je een "Too Many Requests" (HTTP 429) fout.
+          </p>
+          <p className="mb-2">
+            Deze pagina voert meerdere API-aanroepen uit met pauzes ertussen om rate limiting te voorkomen. Als je toch
+            een rate limiting fout krijgt, wacht dan enkele minuten voordat je de pagina opnieuw laadt.
+          </p>
+          <p>
+            Voor productiegebruik is het aan te raden om caching te implementeren en het aantal API-aanroepen te
+            beperken.
+          </p>
+        </div>
       </div>
 
       {/* Navigatie */}

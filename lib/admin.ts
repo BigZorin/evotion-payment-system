@@ -369,6 +369,8 @@ export async function getCourses(bypassCache = false): Promise<Course[]> {
   }
 }
 
+// Vervang de getClickFunnelsProducts functie met deze verbeterde versie
+
 // Functie om producten op te halen van ClickFunnels API
 export async function getClickFunnelsProducts(bypassCache = false): Promise<ClickFunnelsProduct[]> {
   try {
@@ -376,47 +378,25 @@ export async function getClickFunnelsProducts(bypassCache = false): Promise<Clic
     const workspaceId = CLICKFUNNELS_NUMERIC_WORKSPACE_ID // Gebruik de numerieke workspace ID
     const apiToken = CLICKFUNNELS_API_TOKEN
 
-    if (!subdomain || !workspaceId || !apiToken) {
+    if (!subdomain || !apiToken) {
       console.error("ClickFunnels configuratie ontbreekt")
       console.log("CLICKFUNNELS_SUBDOMAIN:", subdomain)
-      console.log("CLICKFUNNELS_NUMERIC_WORKSPACE_ID:", workspaceId)
       console.log("CLICKFUNNELS_API_TOKEN:", apiToken ? "Aanwezig" : "Ontbreekt")
       throw new Error("ClickFunnels configuratie ontbreekt")
     }
 
     // Log de API URL voor debugging
     console.log(`Fetching products from ClickFunnels API`)
-    console.log(`API URL: https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/products`)
 
-    // Probeer eerst met de workspace ID
-    try {
-      const productsResponse = await fetch(
-        `https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/products`,
-        {
-          headers: {
-            Authorization: `Bearer ${apiToken}`,
-            Accept: "application/json",
-          },
-          cache: "no-store",
-        },
-      )
-
-      if (productsResponse.ok) {
-        const products: ClickFunnelsProduct[] = await productsResponse.json()
-        console.log(`Successfully fetched ${products.length} products from ClickFunnels with workspace ID`)
-        return products
-      } else {
-        console.error(`ClickFunnels Products API error with workspace ID: ${productsResponse.status}`)
-        // Als dit mislukt, proberen we het zonder workspace ID
-      }
-    } catch (error) {
-      console.error("Error fetching products with workspace ID:", error)
-      // Als dit mislukt, proberen we het zonder workspace ID
+    // Controleer of we een workspace ID hebben
+    if (!workspaceId) {
+      console.warn("CLICKFUNNELS_NUMERIC_WORKSPACE_ID ontbreekt, kan geen producten ophalen")
+      return []
     }
 
-    // Probeer zonder workspace ID als alternatief
-    console.log(`Trying alternative API URL: https://${subdomain}.myclickfunnels.com/api/v2/products`)
-    const alternativeResponse = await fetch(`https://${subdomain}.myclickfunnels.com/api/v2/products`, {
+    // Gebruik de workspace ID om producten op te halen
+    console.log(`API URL: https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/products`)
+    const response = await fetch(`https://${subdomain}.myclickfunnels.com/api/v2/workspaces/${workspaceId}/products`, {
       headers: {
         Authorization: `Bearer ${apiToken}`,
         Accept: "application/json",
@@ -424,19 +404,70 @@ export async function getClickFunnelsProducts(bypassCache = false): Promise<Clic
       cache: "no-store",
     })
 
-    if (!alternativeResponse.ok) {
-      console.error(`Alternative ClickFunnels Products API error: ${alternativeResponse.status}`)
-      const errorText = await alternativeResponse.text()
+    if (!response.ok) {
+      console.error(`ClickFunnels Products API error: ${response.status}`)
+      const errorText = await response.text()
       console.error(`Error response: ${errorText}`)
 
-      // Als beide methoden mislukken, retourneren we een lege array om de applicatie niet te laten crashen
+      // Als deze methode mislukt, retourneren we een lege array om de applicatie niet te laten crashen
       console.log("Returning empty products array as fallback")
       return []
     }
 
-    const products: ClickFunnelsProduct[] = await alternativeResponse.json()
-    console.log(`Successfully fetched ${products.length} products from ClickFunnels with alternative URL`)
-    return products
+    const products: ClickFunnelsProduct[] = await response.json()
+    console.log(`Successfully fetched ${products.length} products from ClickFunnels`)
+
+    // Haal nu de varianten en prijzen op voor elk product
+    const productsWithDetails = await Promise.all(
+      products.map(async (product) => {
+        try {
+          // Haal varianten op
+          console.log(`Fetching variants for product ${product.id}`)
+          const variants = await getProductVariants(product.id.toString())
+
+          // Haal prijzen op voor elke variant
+          const variantsWithPrices = await Promise.all(
+            variants.map(async (variant) => {
+              try {
+                console.log(`Fetching prices for variant ${variant.id}`)
+                const prices = await getVariantPrices(variant.id)
+                return {
+                  ...variant,
+                  prices,
+                }
+              } catch (error) {
+                console.error(`Error fetching prices for variant ${variant.id}:`, error)
+                return variant
+              }
+            }),
+          )
+
+          // Combineer alle prijzen
+          const allPrices = variantsWithPrices
+            .filter((variant) => variant.prices && variant.prices.length > 0)
+            .flatMap((variant) => variant.prices)
+
+          // Voeg default variant en prijs toe
+          let defaultVariant = null
+          if (product.default_variant_id) {
+            defaultVariant = variantsWithPrices.find((v) => v.id === product.default_variant_id) || null
+          }
+
+          return {
+            ...product,
+            variants: variantsWithPrices,
+            variant: defaultVariant,
+            prices: allPrices,
+            defaultPrice: defaultVariant?.prices?.[0] || null,
+          }
+        } catch (error) {
+          console.error(`Error fetching details for product ${product.id}:`, error)
+          return product
+        }
+      }),
+    )
+
+    return productsWithDetails
   } catch (error) {
     console.error("Error fetching ClickFunnels products:", error)
     // Retourneer een lege array om de applicatie niet te laten crashen
@@ -471,42 +502,69 @@ export async function getDashboardStats(bypassCache = false): Promise<DashboardS
     const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60
     const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60
 
-    // Haal alle betalingen op van de afgelopen 30 dagen
-    const allPayments = await stripe.paymentIntents.list({
-      created: { gte: thirtyDaysAgo },
-      limit: 100,
-    })
-
-    // Filter op succesvolle betalingen
-    const successfulPayments = allPayments.data.filter((payment) => payment.status === "succeeded")
-
-    // Bereken trends (laatste 7 dagen vs. de 7 dagen daarvoor)
-    const recentPayments = successfulPayments.filter((payment) => payment.created >= sevenDaysAgo)
-    const olderPayments = successfulPayments.filter(
-      (payment) => payment.created < sevenDaysAgo && payment.created >= thirtyDaysAgo - 7 * 24 * 60 * 60,
-    )
-
-    const paymentTrend = recentPayments.length - olderPayments.length
-
-    // Enrollments berekenen op basis van metadata in betalingen
-    // In een echte implementatie zou je dit uit je eigen database halen
+    // Verbeterde foutafhandeling voor Stripe API-aanroepen
+    let successfulPayments: any[] = []
+    let paymentTrend = 0
     let enrollmentCount = 0
-    let recentEnrollments = 0
-    let olderEnrollments = 0
+    let enrollmentTrend = 0
 
-    for (const payment of successfulPayments) {
-      if (payment.metadata && payment.metadata.clickfunnels_course_ids) {
-        try {
-          const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
-          enrollmentCount += courseIds.length
+    try {
+      console.log("Fetching payment intents from Stripe API...")
 
-          if (payment.created >= sevenDaysAgo) {
-            recentEnrollments += courseIds.length
-          } else {
-            olderEnrollments += courseIds.length
+      // Controleer of stripe correct is geïnitialiseerd
+      if (!stripe) {
+        throw new Error("Stripe is not initialized")
+      }
+
+      // Haal alle betalingen op van de afgelopen 30 dagen met verbeterde foutafhandeling
+      const allPayments = await stripe.paymentIntents
+        .list({
+          created: { gte: thirtyDaysAgo },
+          limit: 100,
+        })
+        .catch((error) => {
+          console.error("Error fetching payment intents from Stripe:", error)
+          throw new Error(`Stripe API error: ${error.message}`)
+        })
+
+      // Filter op succesvolle betalingen
+      successfulPayments = allPayments.data.filter((payment) => payment.status === "succeeded")
+
+      // Bereken trends (laatste 7 dagen vs. de 7 dagen daarvoor)
+      const recentPayments = successfulPayments.filter((payment) => payment.created >= sevenDaysAgo)
+      const olderPayments = successfulPayments.filter(
+        (payment) => payment.created < sevenDaysAgo && payment.created >= thirtyDaysAgo - 7 * 24 * 60 * 60,
+      )
+
+      paymentTrend = recentPayments.length - olderPayments.length
+
+      // Enrollments berekenen op basis van metadata in betalingen
+      let recentEnrollments = 0
+      let olderEnrollments = 0
+
+      for (const payment of successfulPayments) {
+        if (payment.metadata && payment.metadata.clickfunnels_course_ids) {
+          try {
+            const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
+            enrollmentCount += courseIds.length
+
+            if (payment.created >= sevenDaysAgo) {
+              recentEnrollments += courseIds.length
+            } else {
+              olderEnrollments += courseIds.length
+            }
+          } catch (e) {
+            // Als het geen geldige JSON is, ga ervan uit dat het één cursus is
+            enrollmentCount += 1
+
+            if (payment.created >= sevenDaysAgo) {
+              recentEnrollments += 1
+            } else {
+              olderEnrollments += 1
+            }
           }
-        } catch (e) {
-          // Als het geen geldige JSON is, ga ervan uit dat het één cursus is
+        } else {
+          // Als er geen specifieke cursus metadata is, ga ervan uit dat het één enrollment is
           enrollmentCount += 1
 
           if (payment.created >= sevenDaysAgo) {
@@ -515,19 +573,17 @@ export async function getDashboardStats(bypassCache = false): Promise<DashboardS
             olderEnrollments += 1
           }
         }
-      } else {
-        // Als er geen specifieke cursus metadata is, ga ervan uit dat het één enrollment is
-        enrollmentCount += 1
-
-        if (payment.created >= sevenDaysAgo) {
-          recentEnrollments += 1
-        } else {
-          olderEnrollments += 1
-        }
       }
-    }
 
-    const enrollmentTrend = recentEnrollments - olderEnrollments
+      enrollmentTrend = recentEnrollments - olderEnrollments
+    } catch (error) {
+      console.error("Error processing Stripe data:", error)
+      // We gaan door met de functie, maar met nulwaarden voor Stripe-gerelateerde statistieken
+      successfulPayments = []
+      paymentTrend = 0
+      enrollmentCount = 0
+      enrollmentTrend = 0
+    }
 
     return {
       products: {
@@ -585,106 +641,124 @@ export async function getRecentActivity(limit = 10, bypassCache = false): Promis
   try {
     const activities: RecentActivity[] = []
 
-    // Haal recente betalingen op van Stripe
-    const recentPayments = await stripe.paymentIntents.list({
-      limit: 25, // Haal er meer op dan we nodig hebben, omdat we ze gaan filteren
-      expand: ["data.customer"],
-    })
+    // Verbeterde foutafhandeling voor Stripe API-aanroepen
+    try {
+      console.log("Fetching recent payment intents from Stripe API...")
 
-    // Verwerk succesvolle betalingen
-    for (const payment of recentPayments.data) {
-      if (payment.status === "succeeded") {
-        // Haal klantgegevens op
-        let customerName = "Onbekende klant"
-        let customerEmail = ""
+      // Controleer of stripe correct is geïnitialiseerd
+      if (!stripe) {
+        throw new Error("Stripe is not initialized")
+      }
 
-        if (payment.customer) {
-          try {
-            // Als customer een string is (ID), haal dan de klantgegevens op
-            if (typeof payment.customer === "string") {
-              const customerData = await stripe.customers.retrieve(payment.customer)
-              if (!customerData.deleted) {
-                customerName = customerData.name || "Onbekende klant"
-                customerEmail = customerData.email || ""
-              }
-            } else {
-              // Als customer al een object is
-              customerName = payment.customer.name || "Onbekende klant"
-              customerEmail = payment.customer.email || ""
-            }
-          } catch (e) {
-            console.error("Error fetching customer data:", e)
-          }
-        }
-
-        // Bepaal productnaam uit metadata
-        let productName = "onbekend product"
-        if (payment.metadata && payment.metadata.productName) {
-          productName = payment.metadata.productName as string
-        }
-
-        // Voeg betaling toe aan activiteiten
-        activities.push({
-          id: payment.id,
-          type: "payment",
-          title: "Betaling ontvangen",
-          description: `${formatCurrency(payment.amount)} betaling ontvangen voor ${productName} van ${customerName}`,
-          time: formatDate(new Date(payment.created * 1000)),
-          timestamp: new Date(payment.created * 1000),
+      // Haal recente betalingen op van Stripe met verbeterde foutafhandeling
+      const recentPayments = await stripe.paymentIntents
+        .list({
+          limit: 25, // Haal er meer op dan we nodig hebben, omdat we ze gaan filteren
+          expand: ["data.customer"],
+        })
+        .catch((error) => {
+          console.error("Error fetching payment intents from Stripe:", error)
+          throw new Error(`Stripe API error: ${error.message}`)
         })
 
-        // Als er cursussen in de metadata staan, voeg dan ook enrollments toe
-        if (payment.metadata && payment.metadata.clickfunnels_course_ids) {
-          try {
-            const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
+      // Verwerk succesvolle betalingen
+      for (const payment of recentPayments.data) {
+        if (payment.status === "succeeded") {
+          // Haal klantgegevens op
+          let customerName = "Onbekende klant"
+          let customerEmail = ""
 
-            for (const courseId of courseIds) {
-              // Bepaal cursusnaam
-              let courseName = `Cursus (ID: ${courseId})`
-              switch (courseId) {
-                case "eWbLVk":
-                  courseName = "12-Weken Vetverlies Programma"
-                  break
-                case "vgDnxN":
-                  courseName = "Uitleg van Oefeningen"
-                  break
-                case "JMaGxK":
-                  courseName = "Evotion-Coaching App Handleiding"
-                  break
+          if (payment.customer) {
+            try {
+              // Als customer een string is (ID), haal dan de klantgegevens op
+              if (typeof payment.customer === "string") {
+                const customerData = await stripe.customers.retrieve(payment.customer)
+                if (!customerData.deleted) {
+                  customerName = customerData.name || "Onbekende klant"
+                  customerEmail = customerData.email || ""
+                }
+              } else {
+                // Als customer al een object is
+                customerName = payment.customer.name || "Onbekende klant"
+                customerEmail = payment.customer.email || ""
               }
+            } catch (e) {
+              console.error("Error fetching customer data:", e)
+            }
+          }
 
+          // Bepaal productnaam uit metadata
+          let productName = "onbekend product"
+          if (payment.metadata && payment.metadata.productName) {
+            productName = payment.metadata.productName as string
+          }
+
+          // Voeg betaling toe aan activiteiten
+          activities.push({
+            id: payment.id,
+            type: "payment",
+            title: "Betaling ontvangen",
+            description: `${formatCurrency(payment.amount)} betaling ontvangen voor ${productName} van ${customerName}`,
+            time: formatDate(new Date(payment.created * 1000)),
+            timestamp: new Date(payment.created * 1000),
+          })
+
+          // Als er cursussen in de metadata staan, voeg dan ook enrollments toe
+          if (payment.metadata && payment.metadata.clickfunnels_course_ids) {
+            try {
+              const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
+
+              for (const courseId of courseIds) {
+                // Bepaal cursusnaam
+                let courseName = `Cursus (ID: ${courseId})`
+                switch (courseId) {
+                  case "eWbLVk":
+                    courseName = "12-Weken Vetverlies Programma"
+                    break
+                  case "vgDnxN":
+                    courseName = "Uitleg van Oefeningen"
+                    break
+                  case "JMaGxK":
+                    courseName = "Evotion-Coaching App Handleiding"
+                    break
+                }
+
+                activities.push({
+                  id: `${payment.id}_${courseId}`,
+                  type: "enrollment",
+                  title: "Nieuwe inschrijving",
+                  description: `${customerName} heeft zich ingeschreven voor ${courseName}`,
+                  time: formatDate(new Date(payment.created * 1000)),
+                  timestamp: new Date(payment.created * 1000),
+                })
+              }
+            } catch (e) {
+              // Als het geen geldige JSON is, voeg dan één enrollment toe
               activities.push({
-                id: `${payment.id}_${courseId}`,
+                id: `${payment.id}_enrollment`,
                 type: "enrollment",
                 title: "Nieuwe inschrijving",
-                description: `${customerName} heeft zich ingeschreven voor ${courseName}`,
+                description: `${customerName} heeft zich ingeschreven voor een cursus`,
                 time: formatDate(new Date(payment.created * 1000)),
                 timestamp: new Date(payment.created * 1000),
               })
             }
-          } catch (e) {
-            // Als het geen geldige JSON is, voeg dan één enrollment toe
-            activities.push({
-              id: `${payment.id}_enrollment`,
-              type: "enrollment",
-              title: "Nieuwe inschrijving",
-              description: `${customerName} heeft zich ingeschreven voor een cursus`,
-              time: formatDate(new Date(payment.created * 1000)),
-              timestamp: new Date(payment.created * 1000),
-            })
           }
+        } else if (payment.status === "requires_payment_method" || payment.status === "canceled") {
+          // Voeg mislukte betalingen toe
+          activities.push({
+            id: payment.id,
+            type: "error",
+            title: "Betaling mislukt",
+            description: `Betaling van ${formatCurrency(payment.amount)} is mislukt of geannuleerd`,
+            time: formatDate(new Date(payment.created * 1000)),
+            timestamp: new Date(payment.created * 1000),
+          })
         }
-      } else if (payment.status === "requires_payment_method" || payment.status === "canceled") {
-        // Voeg mislukte betalingen toe
-        activities.push({
-          id: payment.id,
-          type: "error",
-          title: "Betaling mislukt",
-          description: `Betaling van ${formatCurrency(payment.amount)} is mislukt of geannuleerd`,
-          time: formatDate(new Date(payment.created * 1000)),
-          timestamp: new Date(payment.created * 1000),
-        })
       }
+    } catch (error) {
+      console.error("Error processing Stripe activity data:", error)
+      // We gaan door met een lege activiteitenlijst
     }
 
     // Sorteer op timestamp (nieuwste eerst) en beperk tot het gevraagde aantal
@@ -719,79 +793,98 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
   try {
     // In een echte implementatie zou je dit uit je eigen database halen
     // Voor nu gebruiken we de Stripe betalingen als bron
-    const recentPayments = await stripe.paymentIntents.list({
-      limit: 25,
-      expand: ["data.customer"],
-    })
-
     const enrollments: any[] = []
 
-    for (const payment of recentPayments.data) {
-      if (payment.status === "succeeded" && payment.metadata && payment.metadata.clickfunnels_course_ids) {
-        // Haal klantgegevens op
-        let customerName = "Onbekende klant"
-        let customerEmail = ""
+    // Verbeterde foutafhandeling voor Stripe API-aanroepen
+    try {
+      console.log("Fetching recent payment intents for enrollments from Stripe API...")
 
-        if (payment.customer) {
-          try {
-            if (typeof payment.customer === "string") {
-              const customerData = await stripe.customers.retrieve(payment.customer)
-              if (!customerData.deleted) {
-                customerName = customerData.name || "Onbekende klant"
-                customerEmail = customerData.email || ""
+      // Controleer of stripe correct is geïnitialiseerd
+      if (!stripe) {
+        throw new Error("Stripe is not initialized")
+      }
+
+      // Haal recente betalingen op van Stripe met verbeterde foutafhandeling
+      const recentPayments = await stripe.paymentIntents
+        .list({
+          limit: 25,
+          expand: ["data.customer"],
+        })
+        .catch((error) => {
+          console.error("Error fetching payment intents from Stripe:", error)
+          throw new Error(`Stripe API error: ${error.message}`)
+        })
+
+      for (const payment of recentPayments.data) {
+        if (payment.status === "succeeded" && payment.metadata && payment.metadata.clickfunnels_course_ids) {
+          // Haal klantgegevens op
+          let customerName = "Onbekende klant"
+          let customerEmail = ""
+
+          if (payment.customer) {
+            try {
+              if (typeof payment.customer === "string") {
+                const customerData = await stripe.customers.retrieve(payment.customer)
+                if (!customerData.deleted) {
+                  customerName = customerData.name || "Onbekende klant"
+                  customerEmail = customerData.email || ""
+                }
+              } else {
+                customerName = payment.customer.name || "Onbekende klant"
+                customerEmail = payment.customer.email || ""
               }
-            } else {
-              customerName = payment.customer.name || "Onbekende klant"
-              customerEmail = payment.customer.email || ""
+            } catch (e) {
+              console.error("Error fetching customer data:", e)
+            }
+          }
+
+          try {
+            const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
+
+            for (const courseId of courseIds) {
+              // Bepaal cursusnaam
+              let courseName = `Cursus (ID: ${courseId})`
+              switch (courseId) {
+                case "eWbLVk":
+                  courseName = "12-Weken Vetverlies Programma"
+                  break
+                case "vgDnxN":
+                  courseName = "Uitleg van Oefeningen"
+                  break
+                case "JMaGxK":
+                  courseName = "Evotion-Coaching App Handleiding"
+                  break
+              }
+
+              enrollments.push({
+                id: `${payment.id}_${courseId}`,
+                name: customerName,
+                email: customerEmail,
+                course: courseName,
+                courseId: courseId,
+                date: formatDate(new Date(payment.created * 1000)),
+                timestamp: new Date(payment.created * 1000),
+                status: "success",
+              })
             }
           } catch (e) {
-            console.error("Error fetching customer data:", e)
-          }
-        }
-
-        try {
-          const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
-
-          for (const courseId of courseIds) {
-            // Bepaal cursusnaam
-            let courseName = `Cursus (ID: ${courseId})`
-            switch (courseId) {
-              case "eWbLVk":
-                courseName = "12-Weken Vetverlies Programma"
-                break
-              case "vgDnxN":
-                courseName = "Uitleg van Oefeningen"
-                break
-              case "JMaGxK":
-                courseName = "Evotion-Coaching App Handleiding"
-                break
-            }
-
+            // Als het geen geldige JSON is, voeg dan één enrollment toe
             enrollments.push({
-              id: `${payment.id}_${courseId}`,
+              id: `${payment.id}_enrollment`,
               name: customerName,
               email: customerEmail,
-              course: courseName,
-              courseId: courseId,
+              course: "Onbekende cursus",
+              courseId: "",
               date: formatDate(new Date(payment.created * 1000)),
               timestamp: new Date(payment.created * 1000),
               status: "success",
             })
           }
-        } catch (e) {
-          // Als het geen geldige JSON is, voeg dan één enrollment toe
-          enrollments.push({
-            id: `${payment.id}_enrollment`,
-            name: customerName,
-            email: customerEmail,
-            course: "Onbekende cursus",
-            courseId: "",
-            date: formatDate(new Date(payment.created * 1000)),
-            timestamp: new Date(payment.created * 1000),
-            status: "success",
-          })
         }
       }
+    } catch (error) {
+      console.error("Error processing Stripe enrollment data:", error)
+      // We gaan door met een lege enrollments lijst
     }
 
     // Sorteer op timestamp (nieuwste eerst) en beperk tot het gevraagde aantal
@@ -825,17 +918,43 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
   }
 }
 
-// Helper functie om valuta te formatteren
-function formatCurrency(amount: number): string {
-  // Als het bedrag kleiner is dan 10, gaan we ervan uit dat het in euro's is en vermenigvuldigen we met 100
-  const amountInCents = amount < 10 ? amount * 100 : amount
+// Vervang de huidige formatCurrency functie met deze verbeterde versie
+function formatCurrency(amount: number | string | undefined | null, currency = "EUR"): string {
+  if (amount === undefined || amount === null) {
+    return "Prijs niet beschikbaar"
+  }
+
+  // Converteer naar nummer als het een string is
+  let numericAmount: number
+
+  if (typeof amount === "string") {
+    // Vervang komma's door punten voor consistente parsing
+    const normalizedAmount = amount.replace(",", ".")
+    numericAmount = Number.parseFloat(normalizedAmount)
+  } else {
+    numericAmount = amount
+  }
+
+  if (isNaN(numericAmount)) {
+    return "Ongeldige prijs"
+  }
+
+  // Stripe geeft bedragen in centen, dus we moeten delen door 100
+  // ClickFunnels API geeft prijzen als decimale getallen (bijv. "257.00" voor €257)
+  if (numericAmount > 0 && numericAmount < 1) {
+    // Als het bedrag tussen 0 en 1 ligt, is het waarschijnlijk al in euro's (bijv. 0.99 voor €0,99)
+    // Doe niets
+  } else if (numericAmount >= 1000) {
+    // Als het bedrag 1000 of hoger is, is het waarschijnlijk in centen (bijv. 1000 voor €10,00)
+    numericAmount = numericAmount / 100
+  }
 
   return new Intl.NumberFormat("nl-NL", {
     style: "currency",
-    currency: "EUR",
+    currency: currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amountInCents / 100)
+  }).format(numericAmount)
 }
 
 // Helper functie om datums te formatteren

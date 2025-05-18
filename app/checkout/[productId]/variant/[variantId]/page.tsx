@@ -1,7 +1,12 @@
 import { Suspense } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { getClickFunnelsProduct, getProductWithVariantsAndPrices, getClickfunnelsVariant } from "@/lib/clickfunnels"
+import {
+  getClickFunnelsProduct,
+  getProductWithVariantsAndPrices,
+  getClickfunnelsVariant,
+  isValidVariant,
+} from "@/lib/clickfunnels"
 import { ClickFunnelsCheckoutForm } from "@/components/clickfunnels-checkout-form"
 import { formatCurrency } from "@/lib/utils"
 
@@ -35,9 +40,14 @@ export async function generateMetadata({ params }: { params: { productId: string
 export default async function VariantCheckoutPage({ params }: { params: { productId: string; variantId: string } }) {
   console.log(`Variant checkout page requested for product ID: ${params.productId}, variant ID: ${params.variantId}`)
 
+  // Verbeter de manier waarop we de variant en prijzen ophalen en weergeven
+  // Vervang het gedeelte waar we de variant en prijzen ophalen met deze verbeterde versie:
+
   // Haal het product op met alle varianten en prijzen
   let product
   let selectedVariant
+  let variantPrice = null
+  let variantPriceDisplay = "Prijs niet beschikbaar"
 
   try {
     // Haal het volledige product op met alle varianten
@@ -55,12 +65,54 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
     if (!selectedVariant) {
       selectedVariant = await getClickfunnelsVariant(params.variantId)
       console.log(`Variant found directly:`, JSON.stringify(selectedVariant, null, 2))
+
+      // Controleer of de direct opgehaalde variant geldig is
+      if (!isValidVariant(selectedVariant)) {
+        console.log(`Directly fetched variant ${params.variantId} is not valid`)
+        selectedVariant = null
+      }
+    } else {
+      // Controleer of de variant uit het product geldig is
+      if (!isValidVariant(selectedVariant)) {
+        console.log(`Variant ${params.variantId} from product is not valid`)
+        selectedVariant = null
+      }
+    }
+
+    // Bepaal de prijs om weer te geven
+    if (selectedVariant?.prices && selectedVariant.prices.length > 0) {
+      variantPrice = selectedVariant.prices[0]
+      variantPriceDisplay = formatCurrency(variantPrice.amount)
+      console.log(`Using variant price: ${variantPriceDisplay} from variant prices`)
+    } else if (selectedVariant?.price_ids && selectedVariant.price_ids.length > 0) {
+      // Als de variant wel price_ids heeft maar geen prices array, haal dan de prijzen op
+      try {
+        const priceId = selectedVariant.price_ids[0]
+        const price = await fetch(
+          `https://${process.env.CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/prices/${priceId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          },
+        ).then((res) => res.json())
+
+        if (price && price.amount) {
+          variantPrice = price
+          variantPriceDisplay = formatCurrency(price.amount)
+          console.log(`Using fetched price: ${variantPriceDisplay} from price_id ${priceId}`)
+        }
+      } catch (error) {
+        console.error(`Error fetching price for variant ${selectedVariant.id}:`, error)
+      }
     }
   } catch (error) {
     console.error(`Error fetching product or variant:`, error)
   }
 
-  // Als het product of de variant niet is gevonden, toon dan een foutpagina
+  // Als het product of de variant niet is gevonden, of als de variant niet geldig is, toon dan een foutpagina
   if (!product || !selectedVariant) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
@@ -90,20 +142,13 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
   // Bepaal of het een abonnement is
   const isSubscription = selectedVariant.prices?.some((price: any) => price.recurring === true)
 
-  // Bepaal de prijs om weer te geven
-  let variantPrice = null
-  let variantPriceDisplay = "Prijs niet beschikbaar"
-
-  if (selectedVariant.prices && selectedVariant.prices.length > 0) {
-    variantPrice = selectedVariant.prices[0]
-    variantPriceDisplay = formatCurrency(selectedVariant.prices[0].amount)
-  }
+  // Vervang het gedeelte waar we de productbeschrijving en variantbeschrijving voorbereiden met deze verbeterde versie:
 
   // Bereid de productbeschrijving voor
-  const productDescription = product.description || "Geen beschrijving beschikbaar"
+  const productDescription = product?.description || "Geen beschrijving beschikbaar"
 
   // Bereid de variantbeschrijving voor
-  const variantDescription = selectedVariant.description || ""
+  const variantDescription = selectedVariant?.description || ""
 
   // Bereid de productkenmerken voor
   const productFeatures = [
@@ -116,9 +161,10 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
   const productWithSelectedVariant = {
     ...product,
     selectedVariant,
-    name: selectedVariant.name || product.name,
+    name: selectedVariant?.name || product?.name || "Product",
     description: variantDescription || productDescription,
-    price: variantPrice ? variantPrice.amount : product.price || 0,
+    price: variantPrice ? variantPrice.amount : product?.price || 0,
+    prices: selectedVariant?.prices || [],
   }
 
   return (
@@ -137,6 +183,8 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Vervang het gedeelte waar we de productinformatie weergeven met deze verbeterde versie: */}
+
           {/* Productinformatie */}
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center justify-center mb-6">
@@ -149,37 +197,13 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
               />
             </div>
 
-            <div className="inline-block bg-indigo-100 text-indigo-800 px-2 py-1 rounded text-sm mb-2">
-              {selectedVariant.name || "Geselecteerde variant"}
-            </div>
-
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">{product.name}</h1>
-
-            {variantDescription && (
-              <div className="mb-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-2">Variantbeschrijving</h2>
-                <div className="text-gray-600 prose prose-sm max-w-none">
-                  {variantDescription.split("\n").map((paragraph, index) => (
-                    <p key={index} className="mb-2">
-                      {paragraph}
-                    </p>
-                  ))}
-                </div>
+            {selectedVariant?.name && (
+              <div className="inline-block bg-indigo-100 text-indigo-800 px-2 py-1 rounded text-sm mb-2">
+                {selectedVariant.name}
               </div>
             )}
 
-            {productDescription && (
-              <div className="mb-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-2">Productbeschrijving</h2>
-                <div className="text-gray-600 prose prose-sm max-w-none">
-                  {productDescription.split("\n").map((paragraph, index) => (
-                    <p key={index} className="mb-2">
-                      {paragraph}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">{product?.name || "Product"}</h1>
 
             <div className="mb-6">
               <h2 className="text-lg font-medium text-gray-900 mb-2">Prijs</h2>
@@ -201,6 +225,32 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
                 </p>
               )}
             </div>
+
+            {variantDescription && (
+              <div className="mb-6">
+                <h2 className="text-lg font-medium text-gray-900 mb-2">Over deze optie</h2>
+                <div className="text-gray-600 prose prose-sm max-w-none">
+                  {variantDescription.split("\n").map((paragraph, index) => (
+                    <p key={index} className="mb-2">
+                      {paragraph}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {productDescription && !variantDescription && (
+              <div className="mb-6">
+                <h2 className="text-lg font-medium text-gray-900 mb-2">Productbeschrijving</h2>
+                <div className="text-gray-600 prose prose-sm max-w-none">
+                  {productDescription.split("\n").map((paragraph, index) => (
+                    <p key={index} className="mb-2">
+                      {paragraph}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="border-t border-gray-200 pt-6">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Wat krijg je?</h2>

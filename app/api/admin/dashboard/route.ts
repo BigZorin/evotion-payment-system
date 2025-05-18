@@ -8,6 +8,9 @@ import {
 } from "@/lib/admin"
 import { products } from "@/lib/products"
 import { apiCache } from "@/lib/cache"
+import { isStripeAvailable } from "@/lib/stripe-server"
+
+export const dynamic = "force-dynamic" // Zorg ervoor dat deze route altijd dynamisch is
 
 export async function GET(request: Request) {
   try {
@@ -19,6 +22,12 @@ export async function GET(request: Request) {
       console.log("Bypassing cache and fetching fresh data")
       // Invalidate all cache
       apiCache.clear()
+    }
+
+    // Controleer of Stripe beschikbaar is
+    const stripeAvailable = isStripeAvailable()
+    if (!stripeAvailable) {
+      console.warn("Stripe is niet beschikbaar. Sommige dashboard functies zullen beperkt zijn.")
     }
 
     // Parallel data ophalen voor betere performance
@@ -57,6 +66,9 @@ export async function GET(request: Request) {
       courses,
       clickfunnelsProducts,
       localProducts: products,
+      apiStatus: {
+        stripe: stripeAvailable,
+      },
     })
   } catch (error) {
     console.error("Error in dashboard API route:", error)
@@ -64,6 +76,20 @@ export async function GET(request: Request) {
       {
         error: "Er is een fout opgetreden bij het ophalen van de dashboard gegevens",
         details: error instanceof Error ? error.message : "Unknown error",
+        localProducts: products,
+        stats: {
+          products: { total: products.length, trend: 0, trendLabel: "sinds vorige maand" },
+          courses: { total: 3, trend: 0, trendLabel: "sinds vorige maand" },
+          payments: { total: 0, trend: 0, trendLabel: "sinds vorige week" },
+          enrollments: { total: 0, trend: 0, trendLabel: "sinds vorige week" },
+        },
+        recentActivity: [],
+        recentEnrollments: [],
+        courses: [],
+        clickfunnelsProducts: [],
+        apiStatus: {
+          stripe: false,
+        },
       },
       { status: 500 },
     )

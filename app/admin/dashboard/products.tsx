@@ -7,12 +7,26 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ClickFunnelsProduct } from "@/lib/admin"
-import { formatCurrency } from "@/lib/utils"
 
 interface ProductsTabProps {
   initialProducts: ClickFunnelsProduct[]
   onSelectProduct: (productId: string) => void
   searchTerm?: string
+}
+
+// Vervang de huidige formatPrice functie met deze verbeterde versie
+const formatPrice = (price: any) => {
+  if (!price) return "Prijs niet beschikbaar"
+
+  const amount = price.amount
+
+  // ClickFunnels API geeft prijzen als decimale getallen (bijv. "257.00" voor €257)
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency: price.currency || "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
 }
 
 export default function ProductsTab({ initialProducts, onSelectProduct, searchTerm = "" }: ProductsTabProps) {
@@ -89,11 +103,13 @@ export default function ProductsTab({ initialProducts, onSelectProduct, searchTe
       <CardContent className="p-4 pt-2">
         <div className="text-sm text-gray-500 mb-2">
           <span className="font-medium text-[#1e1839]">Prijs: </span>
-          {product.defaultPrice
-            ? formatCurrency(product.defaultPrice.amount)
-            : product.prices && product.prices.length > 0
-              ? formatCurrency(product.prices[0].amount)
-              : "Prijs niet beschikbaar"}
+          {product.defaultPrice ? (
+            <p className="text-lg font-semibold">{formatPrice(product.defaultPrice)}</p>
+          ) : product.prices && product.prices.length > 0 ? (
+            <p className="text-lg font-semibold">{formatPrice(product.prices[0])}</p>
+          ) : (
+            <p className="text-sm text-gray-500">Prijs niet beschikbaar</p>
+          )}
         </div>
         <div className="text-sm text-gray-500">
           <span className="font-medium text-[#1e1839]">Variant: </span>

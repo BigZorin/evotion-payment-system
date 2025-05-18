@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { apiCache } from "@/lib/cache"
 
+export const dynamic = "force-dynamic" // Zorg ervoor dat deze route altijd dynamisch is
+
 export async function GET(request: Request) {
   try {
     // Haal cache statistieken op

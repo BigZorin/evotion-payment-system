@@ -1,6 +1,7 @@
 "use server"
 
 import type { ClickFunnelsContact } from "./types"
+import { fetchWithRateLimiting } from "./api-helpers"
 
 // Deze waarden moeten worden ingesteld als omgevingsvariabelen
 const CLICKFUNNELS_SUBDOMAIN_OLD = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
@@ -34,6 +35,9 @@ export interface ClickfunnelsVariant {
   description: string | null
   sku: string | null
   price_ids: string[] | null
+  prices?: ClickfunnelsPrice[]
+  archived?: boolean
+  deleted?: boolean
   properties_values?: {
     property_id: number
     value: string
@@ -50,25 +54,83 @@ export interface ClickfunnelsPrice {
   recurring: boolean
   recurring_interval?: string
   recurring_interval_count?: number
+  archived?: boolean
+  deleted?: boolean
   // ... other properties
+}
+
+/**
+ * Controleert of een variant geldig is (niet verwijderd en heeft een prijs)
+ * @param variant De variant om te controleren
+ * @returns true als de variant geldig is, anders false
+ */
+export function isValidVariant(variant: ClickfunnelsVariant): boolean {
+  // Controleer of de variant niet gearchiveerd of verwijderd is
+  if (variant.archived === true || variant.deleted === true) {
+    console.log(`Variant ${variant.id} is archived or deleted, skipping`)
+    return false
+  }
+
+  // Controleer of de variant prijzen heeft
+  if (!variant.price_ids || variant.price_ids.length === 0) {
+    console.log(`Variant ${variant.id} has no price_ids, skipping`)
+    return false
+  }
+
+  // Als de variant prices heeft, controleer dan of er geldige prijzen zijn
+  if (variant.prices && variant.prices.length > 0) {
+    const validPrices = variant.prices.filter(
+      (price) =>
+        price.archived !== true && price.deleted !== true && price.amount !== undefined && price.amount !== null,
+    )
+
+    if (validPrices.length === 0) {
+      console.log(`Variant ${variant.id} has no valid prices, skipping`)
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
+ * Controleert of een prijs geldig is (niet verwijderd en heeft een bedrag)
+ * @param price De prijs om te controleren
+ * @returns true als de prijs geldig is, anders false
+ */
+export function isValidPrice(price: ClickfunnelsPrice): boolean {
+  // Controleer of de prijs niet gearchiveerd of verwijderd is
+  if (price.archived === true || price.deleted === true) {
+    return false
+  }
+
+  // Controleer of de prijs een bedrag heeft
+  if (price.amount === undefined || price.amount === null) {
+    return false
+  }
+
+  return true
 }
 
 export async function getClickfunnelsProducts(): Promise<ClickfunnelsProduct[]> {
   try {
-    // Altijd verse data ophalen voor producten
-    const response = await fetch(`https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products`, {
-      headers: {
-        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
-        Accept: "application/json",
-      },
-      cache: "no-store", // Geen caching op HTTP-niveau
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch products: ${response.status}`)
+    if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
+      throw new Error("ClickFunnels API token of subdomain ontbreekt")
     }
 
-    const data = await response.json()
+    // Gebruik fetchWithRateLimiting voor betere foutafhandeling en rate limiting
+    const data = await fetchWithRateLimiting<ClickfunnelsProduct[]>(
+      `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products`,
+      {
+        headers: {
+          Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+          Accept: "application/json",
+        },
+      },
+      "clickfunnels_products", // Cache key
+      5 * 60 * 1000, // 5 minuten cache TTL
+    )
+
     return data
   } catch (error) {
     console.error("Error fetching ClickFunnels products:", error)
@@ -78,20 +140,23 @@ export async function getClickfunnelsProducts(): Promise<ClickfunnelsProduct[]> 
 
 export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsProduct> {
   try {
-    // Altijd verse data ophalen voor een product
-    const response = await fetch(`https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/${id}`, {
-      headers: {
-        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
-        Accept: "application/json",
-      },
-      cache: "no-store", // Geen caching op HTTP-niveau
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch product: ${response.status}`)
+    if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
+      throw new Error("ClickFunnels API token of subdomain ontbreekt")
     }
 
-    const data = await response.json()
+    // Gebruik fetchWithRateLimiting voor betere foutafhandeling en rate limiting
+    const data = await fetchWithRateLimiting<ClickfunnelsProduct>(
+      `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/${id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+          Accept: "application/json",
+        },
+      },
+      `clickfunnels_product_${id}`, // Cache key
+      5 * 60 * 1000, // 5 minuten cache TTL
+    )
+
     return data
   } catch (error) {
     console.error(`Error fetching ClickFunnels product ${id}:`, error)
@@ -101,23 +166,23 @@ export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsPr
 
 export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVariant> {
   try {
-    // Altijd verse data ophalen voor een variant
-    const response = await fetch(
+    if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
+      throw new Error("ClickFunnels API token of subdomain ontbreekt")
+    }
+
+    // Gebruik fetchWithRateLimiting voor betere foutafhandeling en rate limiting
+    const data = await fetchWithRateLimiting<ClickfunnelsVariant>(
       `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/variants/${id}`,
       {
         headers: {
           Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
           Accept: "application/json",
         },
-        cache: "no-store", // Geen caching op HTTP-niveau
       },
+      `clickfunnels_variant_${id}`, // Cache key
+      5 * 60 * 1000, // 5 minuten cache TTL
     )
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch variant: ${response.status}`)
-    }
-
-    const data = await response.json()
     return data
   } catch (error) {
     console.error(`Error fetching ClickFunnels variant ${id}:`, error)
@@ -127,20 +192,26 @@ export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVa
 
 export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPrice> {
   try {
-    // Altijd verse data ophalen voor een prijs
-    const response = await fetch(`https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/prices/${id}`, {
-      headers: {
-        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
-        Accept: "application/json",
-      },
-      cache: "no-store", // Geen caching op HTTP-niveau
-    })
+    console.log(`Fetching ClickFunnels price with ID: ${id}`)
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch price: ${response.status}`)
+    if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
+      throw new Error("ClickFunnels API token of subdomain ontbreekt")
     }
 
-    const data = await response.json()
+    // Gebruik fetchWithRateLimiting voor betere foutafhandeling en rate limiting
+    const data = await fetchWithRateLimiting<ClickfunnelsPrice>(
+      `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/prices/${id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
+          Accept: "application/json",
+        },
+      },
+      `clickfunnels_price_${id}`, // Cache key
+      5 * 60 * 1000, // 5 minuten cache TTL
+    )
+
+    console.log(`Successfully fetched price with ID ${id}:`, JSON.stringify(data, null, 2))
     return data
   } catch (error) {
     console.error(`Error fetching ClickFunnels price ${id}:`, error)
@@ -150,27 +221,56 @@ export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPric
 
 export async function getProductWithVariantsAndPrices(productId: string): Promise<ClickfunnelsProduct> {
   try {
+    console.log(`Fetching product with variants and prices for product ID: ${productId}`)
+
     // Fetch the product
     const product = await getClickFunnelsProduct(productId)
+    console.log(`Product fetched:`, JSON.stringify(product, null, 2))
 
     // Fetch all variants for this product
-    const variantPromises = product.variant_ids.map((variantId) => getClickfunnelsVariant(variantId))
-    const variants = await Promise.all(variantPromises)
+    console.log(`Fetching variants for product ID: ${productId}`)
+    const variantPromises = product.variant_ids.map((variantId) =>
+      getClickfunnelsVariant(variantId).catch((err) => {
+        console.error(`Error fetching variant ${variantId}:`, err)
+        return null
+      }),
+    )
+
+    const allVariants = (await Promise.all(variantPromises)).filter((v) => v !== null) as ClickfunnelsVariant[]
+    console.log(`Fetched ${allVariants.length} variants for product ID: ${productId}`)
 
     // Fetch all prices for each variant
     const allPrices: ClickfunnelsPrice[] = []
-    for (const variant of variants) {
+    for (const variant of allVariants) {
       if (variant.price_ids && variant.price_ids.length > 0) {
-        const pricePromises = variant.price_ids.map((priceId) => getClickfunnelsPrice(priceId))
-        const variantPrices = await Promise.all(pricePromises)
+        console.log(`Fetching prices for variant ID: ${variant.id}`)
+        const pricePromises = variant.price_ids.map((priceId) =>
+          getClickfunnelsPrice(priceId).catch((err) => {
+            console.error(`Error fetching price ${priceId}:`, err)
+            return null
+          }),
+        )
+
+        const variantPrices = (await Promise.all(pricePromises)).filter((p) => p !== null) as ClickfunnelsPrice[]
+        console.log(`Fetched ${variantPrices.length} prices for variant ID: ${variant.id}`)
+
+        // Assign prices to the variant
+        variant.prices = variantPrices
+
         allPrices.push(...variantPrices)
       }
     }
 
-    // Return the product with variants and prices
+    console.log(`Total prices fetched for product ID ${productId}: ${allPrices.length}`)
+
+    // Filter out invalid variants (archived, deleted, or without valid prices)
+    const validVariants = allVariants.filter(isValidVariant)
+    console.log(`Found ${validVariants.length} valid variants out of ${allVariants.length} total variants`)
+
+    // Return the product with valid variants and prices
     return {
       ...product,
-      variants,
+      variants: validVariants,
       prices: allPrices,
     }
   } catch (error) {
@@ -196,11 +296,11 @@ export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[
             }),
           )
 
-          const variants = (await Promise.all(variantPromises)).filter((v) => v !== null) as ClickfunnelsVariant[]
+          const allVariants = (await Promise.all(variantPromises)).filter((v) => v !== null) as ClickfunnelsVariant[]
 
           // Fetch all prices for each variant
           const allPrices: ClickfunnelsPrice[] = []
-          for (const variant of variants) {
+          for (const variant of allVariants) {
             if (variant.price_ids && variant.price_ids.length > 0) {
               const pricePromises = variant.price_ids.map((priceId) =>
                 getClickfunnelsPrice(priceId).catch((err) => {
@@ -209,13 +309,20 @@ export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[
                 }),
               )
               const variantPrices = (await Promise.all(pricePromises)).filter((p) => p !== null) as ClickfunnelsPrice[]
+
+              // Assign prices to the variant
+              variant.prices = variantPrices
+
               allPrices.push(...variantPrices)
             }
           }
 
+          // Filter out invalid variants
+          const validVariants = allVariants.filter(isValidVariant)
+
           return {
             ...product,
-            variants,
+            variants: validVariants,
             prices: allPrices,
           }
         } catch (error) {

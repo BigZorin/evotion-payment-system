@@ -1,16 +1,20 @@
 import Stripe from "stripe"
+import { STRIPE_SECRET_KEY } from "./config"
 
-// Controleer of de STRIPE_SECRET_KEY is ingesteld
-if (!process.env.STRIPE_SECRET_KEY) {
-  console.error("STRIPE_SECRET_KEY is niet ingesteld in de omgevingsvariabelen")
-  throw new Error("STRIPE_SECRET_KEY is niet ingesteld")
+// Controleer of de Stripe API key is geconfigureerd
+if (!STRIPE_SECRET_KEY) {
+  console.warn("STRIPE_SECRET_KEY is niet geconfigureerd. Stripe functionaliteit zal niet werken.")
 }
 
-// Initialiseer de Stripe client met de API key
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16", // Gebruik de meest recente API versie
-  appInfo: {
-    name: "Evotion Coaching Betaalplatform",
-    version: "1.0.0",
-  },
-})
+// Initialiseer Stripe alleen als de API key beschikbaar is
+export const stripe = STRIPE_SECRET_KEY
+  ? new Stripe(STRIPE_SECRET_KEY, {
+      apiVersion: "2023-10-16",
+      typescript: true,
+    })
+  : null
+
+// Helper functie om te controleren of Stripe beschikbaar is
+export function isStripeAvailable(): boolean {
+  return !!stripe
+}

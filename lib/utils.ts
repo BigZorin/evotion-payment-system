@@ -32,8 +32,8 @@ export function formatCurrency(amount: string | number | undefined | null, curre
     return "Ongeldige prijs"
   }
 
-  // ClickFunnels API geeft prijzen als decimale getallen (bijv. "100.00")
-  // We hoeven dus NIET standaard te delen door 100
+  // ClickFunnels API geeft prijzen als decimale getallen (bijv. "257.00" voor €257)
+  // We hoeven dus NIET te delen door 100
 
   return new Intl.NumberFormat("nl-NL", {
     style: "currency",
