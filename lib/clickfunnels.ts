@@ -1,7 +1,9 @@
-"use server"
+// Verwijder de 'use server' directive van het bestand niveau
+// en voeg het toe aan elke functie die als Server Action moet worden gebruikt
 
 import type { ClickFunnelsContact } from "./types"
 import { fetchWithRateLimiting } from "./api-helpers"
+import { isValidVariant, isValidPrice } from "./clickfunnels-helpers"
 
 // Deze waarden moeten worden ingesteld als omgevingsvariabelen
 const CLICKFUNNELS_SUBDOMAIN_OLD = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
@@ -59,11 +61,13 @@ export interface ClickfunnelsPrice {
   // ... other properties
 }
 
-// Helper functies die niet als Server Actions worden gebruikt
-// Deze worden in een apart bestand geplaatst zonder 'use server' directive
-export * from "./clickfunnels-helpers"
+// Exporteer de helper functies
+export { isValidVariant, isValidPrice }
 
+// Voeg 'use server' toe aan elke functie die als Server Action moet worden gebruikt
 export async function getClickfunnelsProducts(): Promise<ClickfunnelsProduct[]> {
+  "use server"
+
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
       throw new Error("ClickFunnels API token of subdomain ontbreekt")
@@ -90,6 +94,8 @@ export async function getClickfunnelsProducts(): Promise<ClickfunnelsProduct[]> 
 }
 
 export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsProduct> {
+  "use server"
+
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
       throw new Error("ClickFunnels API token of subdomain ontbreekt")
@@ -116,6 +122,8 @@ export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsPr
 }
 
 export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVariant> {
+  "use server"
+
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
       throw new Error("ClickFunnels API token of subdomain ontbreekt")
@@ -142,6 +150,8 @@ export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVa
 }
 
 export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPrice> {
+  "use server"
+
   try {
     console.log(`Fetching ClickFunnels price with ID: ${id}`)
 
@@ -171,6 +181,8 @@ export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPric
 }
 
 export async function getProductWithVariantsAndPrices(productId: string): Promise<ClickfunnelsProduct> {
+  "use server"
+
   try {
     console.log(`Fetching product with variants and prices for product ID: ${productId}`)
 
@@ -215,7 +227,6 @@ export async function getProductWithVariantsAndPrices(productId: string): Promis
     console.log(`Total prices fetched for product ID ${productId}: ${allPrices.length}`)
 
     // Filter out invalid variants (archived, deleted, or without valid prices)
-    const { isValidVariant } = await import("./clickfunnels-helpers")
     const validVariants = allVariants.filter(isValidVariant)
     console.log(`Found ${validVariants.length} valid variants out of ${allVariants.length} total variants`)
 
@@ -232,12 +243,11 @@ export async function getProductWithVariantsAndPrices(productId: string): Promis
 }
 
 export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[]> {
+  "use server"
+
   try {
     // Fetch all products
     const products = await getClickfunnelsProducts()
-
-    // Import helper functions
-    const { isValidVariant } = await import("./clickfunnels-helpers")
 
     // For each product, fetch its variants
     const productsWithVariants = await Promise.all(
@@ -296,6 +306,8 @@ export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[
 
 // Functie om de cache voor een specifiek product te invalideren
 export async function invalidateProductCache(productId: string): Promise<void> {
+  "use server"
+
   // Invalideer de product cache
   apiCache.delete(`products:${productId}`)
 
@@ -312,6 +324,8 @@ export async function invalidateProductCache(productId: string): Promise<void> {
  * @returns Een object met het resultaat van de operatie
  */
 export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
+  "use server"
+
   if (!API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }
@@ -430,6 +444,8 @@ export async function upsertClickFunnelsContact(contact: ClickFunnelsContact) {
 export async function getContactByEmail(
   email: string,
 ): Promise<{ success: boolean; contactId?: number; error?: string }> {
+  "use server"
+
   if (!API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }

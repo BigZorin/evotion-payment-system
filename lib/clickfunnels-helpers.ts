@@ -1,5 +1,4 @@
 // Helper functies voor ClickFunnels die geen Server Actions zijn
-// Dit bestand bevat geen 'use server' directive
 
 import type { ClickfunnelsVariant, ClickfunnelsPrice } from "./clickfunnels"
 
