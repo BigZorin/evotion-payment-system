@@ -1,4 +1,4 @@
-"\"use server"
+"use server"
 
 import { fetchWithRateLimiting } from "./api-helpers"
 import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN } from "./config"
@@ -231,9 +231,6 @@ export async function getProductWithVariantsAndPrices(productId: string): Promis
     }
 
     console.log(`Total prices fetched for product ID ${productId}: ${allPrices.length}`)
-
-    // Import helper functions
-    //const { isValidVariant } = await import("./clickfunnels-helpers")
 
     // Filter out invalid variants (archived, deleted, or without valid prices)
     const validVariants = allVariants.filter(isValidVariantHelper)
