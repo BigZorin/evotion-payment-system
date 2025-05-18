@@ -50,26 +50,9 @@ export default function Home() {
 
         <div className="bg-[#1e1839]/5 p-6 rounded-lg mb-8">
           <h2 className="text-xl font-semibold mb-4 text-[#1e1839]">Veilig betalen</h2>
-          <p className="text-gray-600 mb-4">
-            Al onze betalingen worden verwerkt via Stripe, een van 's werelds meest betrouwbare betaalproviders. Je
-            gegevens zijn veilig en worden versleuteld verzonden.
+          <p className="text-gray-600">
+            Al onze betalingen worden veilig verwerkt. Je gegevens zijn beschermd en worden versleuteld verzonden.
           </p>
-          <div className="flex justify-center gap-6 items-center">
-            {/* iDEAL Logo */}
-            <div className="h-8 w-16 relative">
-              <img src="/ideal-logo-19535.svg" alt="iDEAL" className="h-full w-full object-contain" />
-            </div>
-
-            {/* Mastercard Logo */}
-            <div className="h-8 w-12 relative">
-              <img src="/mastercard.svg" alt="Mastercard" className="h-full w-full object-contain" />
-            </div>
-
-            {/* Maestro Logo */}
-            <div className="h-8 w-12 relative">
-              <img src="/maestro.svg" alt="Maestro" className="h-full w-full object-contain" />
-            </div>
-          </div>
         </div>
 
         <div className="flex justify-center">

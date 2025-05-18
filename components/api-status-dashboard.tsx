@@ -1,394 +1,314 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { toast } from "@/components/ui/use-toast"
-import type { ApiStatusResult, ApiEndpoint } from "@/lib/api-status"
-import { CheckCircle, XCircle, AlertTriangle, HelpCircle, RefreshCw, Clock, Server } from "lucide-react"
+import { AlertCircle, CheckCircle, AlertTriangle, Clock, RefreshCw } from "lucide-react"
 
-interface ApiStatusDashboardProps {
-  initialData?: {
-    results: ApiStatusResult[]
-    summary?: {
-      total: number
-      online: number
-      offline: number
-      degraded: number
-      unknown: number
-      averageResponseTime: number
-      categories: {
-        name: string
-        total: number
-        online: number
-        offline: number
-        degraded: number
-      }[]
-    }
-  }
+interface ApiEndpoint {
+  name: string
+  url: string
+  method: string
+  description: string
+  category: string
 }
 
-export default function ApiStatusDashboard({ initialData }: ApiStatusDashboardProps) {
-  const [data, setData] = useState(initialData || { results: [] })
-  const [loading, setLoading] = useState(!initialData)
-  const [refreshing, setRefreshing] = useState(false)
-  const [activeTab, setActiveTab] = useState("all")
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialData ? new Date() : null)
+interface ApiStatusResult {
+  endpoint: ApiEndpoint
+  status: "online" | "offline" | "degraded" | "unknown"
+  responseTime: number
+  statusCode?: number
+  message?: string
+  timestamp: Date
+  error?: string
+}
+
+interface ApiStatusSummary {
+  total: number
+  online: number
+  offline: number
+  degraded: number
+  unknown: number
+  averageResponseTime: number
+  categories: {
+    name: string
+    total: number
+    online: number
+    offline: number
+    degraded: number
+  }[]
+}
+
+export default function ApiStatusDashboard() {
+  const [results, setResults] = useState<ApiStatusResult[]>([])
+  const [summary, setSummary] = useState<ApiStatusSummary | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState("all")
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   // Functie om de API status op te halen
   const fetchApiStatus = async (category?: string) => {
     try {
       setRefreshing(true)
-      setError(null)
-
       const url =
         category && category !== "all" ? `/api/admin/api-status?category=${category}` : "/api/admin/api-status"
-
-      const response = await fetch(url)
+      const response = await fetch(url, { cache: "no-store" })
 
       if (!response.ok) {
-        throw new Error(`Error fetching API status: ${response.status}`)
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      const newData = await response.json()
-      setData(newData)
+      const data = await response.json()
+      setResults(data.results)
+      setSummary(data.summary)
       setLastUpdated(new Date())
-
-      // Toon een toast als er offline API's zijn
-      const offlineCount = newData.results.filter((r: ApiStatusResult) => r.status === "offline").length
-      if (offlineCount > 0) {
-        toast({
-          title: `${offlineCount} API${offlineCount === 1 ? " is" : "'s zijn"} offline`,
-          description: "Bekijk het dashboard voor meer details.",
-          variant: "destructive",
-        })
-      }
+      setError(null)
     } catch (err) {
+      setError(err instanceof Error ? err.message : "Er is een fout opgetreden bij het ophalen van de API status")
       console.error("Error fetching API status:", err)
-      setError("Er is een fout opgetreden bij het ophalen van de API status.")
-
-      toast({
-        title: "Fout bij verversen",
-        description: "Er is een fout opgetreden bij het verversen van de API status.",
-        variant: "destructive",
-      })
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
   }
 
-  // Haal de API status op bij eerste render
-  useEffect(() => {
-    if (!initialData) {
-      fetchApiStatus()
-    }
-  }, [])
-
   // Functie om een specifieke API endpoint te testen
-  const testEndpoint = async (endpoint: ApiEndpoint) => {
+  const testEndpoint = async (endpoint: string) => {
     try {
-      toast({
-        title: `API Test: ${endpoint.name}`,
-        description: "Bezig met testen...",
+      const response = await fetch(`/api/admin/api-status?endpoint=${encodeURIComponent(endpoint)}`, {
+        cache: "no-store",
       })
-
-      const response = await fetch(`/api/admin/api-status?endpoint=${encodeURIComponent(endpoint.url)}`)
 
       if (!response.ok) {
-        throw new Error(`Error testing endpoint: ${response.status}`)
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      const result = await response.json()
+      const data = await response.json()
 
-      toast({
-        title: `API Test: ${endpoint.name}`,
-        description:
-          result.results[0].status === "online"
-            ? `Online (${result.results[0].responseTime}ms)`
-            : `Offline: ${result.results[0].message}`,
-        variant: result.results[0].status === "online" ? "default" : "destructive",
+      // Update alleen de geteste endpoint in de resultaten
+      setResults((prevResults) => {
+        return prevResults.map((result) => {
+          if (result.endpoint.url === endpoint) {
+            return data.results[0]
+          }
+          return result
+        })
       })
 
-      // Ververs de volledige lijst
+      // Herbereken de samenvatting
       fetchApiStatus(activeTab !== "all" ? activeTab : undefined)
     } catch (err) {
       console.error("Error testing endpoint:", err)
-
-      toast({
-        title: `API Test: ${endpoint.name}`,
-        description: "Er is een fout opgetreden bij het testen van de API.",
-        variant: "destructive",
-      })
     }
   }
 
-  // Functie om alle API's te verversen
-  const refreshAll = () => {
-    fetchApiStatus(activeTab !== "all" ? activeTab : undefined)
-  }
+  // Laad de API status bij het laden van de component
+  useEffect(() => {
+    fetchApiStatus()
+  }, [])
 
-  // Functie om de status badge te renderen
-  const renderStatusBadge = (status: string) => {
+  // Functie om de juiste kleur te bepalen voor de status
+  const getStatusColor = (status: string) => {
     switch (status) {
       case "online":
-        return (
-          <Badge variant="success" className="ml-2">
-            Online
-          </Badge>
-        )
+        return "bg-green-500 hover:bg-green-600"
       case "offline":
-        return (
-          <Badge variant="error" className="ml-2">
-            Offline
-          </Badge>
-        )
+        return "bg-red-500 hover:bg-red-600"
       case "degraded":
-        return (
-          <Badge variant="warning" className="ml-2">
-            Traag
-          </Badge>
-        )
+        return "bg-yellow-500 hover:bg-yellow-600"
       default:
-        return (
-          <Badge variant="outline" className="ml-2">
-            Onbekend
-          </Badge>
-        )
+        return "bg-gray-500 hover:bg-gray-600"
     }
   }
 
-  // Functie om het status icoon te renderen
-  const renderStatusIcon = (status: string, size = 16) => {
+  // Functie om het juiste icoon te bepalen voor de status
+  const getStatusIcon = (status: string) => {
     switch (status) {
       case "online":
-        return <CheckCircle size={size} className="text-green-500" />
+        return <CheckCircle className="h-5 w-5" />
       case "offline":
-        return <XCircle size={size} className="text-red-500" />
+        return <AlertCircle className="h-5 w-5" />
       case "degraded":
-        return <AlertTriangle size={size} className="text-amber-500" />
+        return <AlertTriangle className="h-5 w-5" />
       default:
-        return <HelpCircle size={size} className="text-gray-400" />
+        return <Clock className="h-5 w-5" />
     }
+  }
+
+  // Functie om de tab te wijzigen
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    fetchApiStatus(value !== "all" ? value : undefined)
+  }
+
+  // Functie om de tijd te formatteren
+  const formatTime = (date: Date) => {
+    return new Intl.DateTimeFormat("nl-NL", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(date)
   }
 
   // Filter resultaten op basis van de actieve tab
-  const filteredResults = data.results.filter(
-    (result: ApiStatusResult) => activeTab === "all" || result.endpoint.category === activeTab,
-  )
-
-  // Bereken statistieken voor de gefilterde resultaten
-  const filteredStats = {
-    total: filteredResults.length,
-    online: filteredResults.filter((r: ApiStatusResult) => r.status === "online").length,
-    offline: filteredResults.filter((r: ApiStatusResult) => r.status === "offline").length,
-    degraded: filteredResults.filter((r: ApiStatusResult) => r.status === "degraded").length,
-    unknown: filteredResults.filter((r: ApiStatusResult) => r.status === "unknown").length,
-  }
-
-  // Bepaal de algemene status
-  const overallStatus =
-    filteredStats.offline > 0
-      ? "offline"
-      : filteredStats.degraded > 0
-        ? "degraded"
-        : filteredStats.online === filteredStats.total
-          ? "online"
-          : "unknown"
+  const filteredResults =
+    activeTab === "all" ? results : results.filter((result) => result.endpoint.category === activeTab)
 
   return (
-    <div className="space-y-6">
-      {/* Header met algemene status */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="container mx-auto py-6 space-y-6">
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold flex items-center">
-            API Status Dashboard
-            {renderStatusIcon(overallStatus, 24)}
-          </h1>
-          <p className="text-muted-foreground">Monitor de status van alle API-verbindingen</p>
+          <h1 className="text-3xl font-bold">API Status Dashboard</h1>
+          <p className="text-gray-500">
+            Monitor de status van alle API-verbindingen
+            {lastUpdated && <span className="ml-2">• Laatste update: {formatTime(lastUpdated)}</span>}
+          </p>
         </div>
+        <Button
+          onClick={() => fetchApiStatus(activeTab !== "all" ? activeTab : undefined)}
+          disabled={refreshing}
+          className="flex items-center gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Verversen..." : "Verversen"}
+        </Button>
+      </div>
 
-        <div className="flex items-center gap-2">
-          {lastUpdated && (
-            <div className="text-sm text-muted-foreground flex items-center">
-              <Clock size={14} className="mr-1" />
-              Laatste update: {lastUpdated.toLocaleTimeString()}
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <strong className="font-bold">Fout! </strong>
+          <span className="block sm:inline">{error}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-4">
+          <Skeleton className="h-[200px] w-full rounded-lg" />
+          <Skeleton className="h-[400px] w-full rounded-lg" />
+        </div>
+      ) : (
+        <>
+          {/* Samenvatting */}
+          {summary && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Totaal</CardTitle>
+                  <CardDescription>Alle API endpoints</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold">{summary.total}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Online</CardTitle>
+                  <CardDescription>Beschikbare endpoints</CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between">
+                  <div className="text-3xl font-bold text-green-500">{summary.online}</div>
+                  <div className="text-lg">{Math.round((summary.online / summary.total) * 100)}%</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Offline</CardTitle>
+                  <CardDescription>Onbeschikbare endpoints</CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between">
+                  <div className="text-3xl font-bold text-red-500">{summary.offline}</div>
+                  <div className="text-lg">{Math.round((summary.offline / summary.total) * 100)}%</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Gemiddelde responstijd</CardTitle>
+                  <CardDescription>Alle endpoints</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold">{summary.averageResponseTime} ms</div>
+                </CardContent>
+              </Card>
             </div>
           )}
 
-          <Button variant="outline" size="sm" onClick={refreshAll} disabled={refreshing}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
-            {refreshing ? "Verversen..." : "Verversen"}
-          </Button>
-        </div>
-      </div>
+          {/* Tabs voor categorieën */}
+          <Tabs defaultValue="all" value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="mb-4">
+              <TabsTrigger value="all">Alle</TabsTrigger>
+              <TabsTrigger value="clickfunnels">ClickFunnels</TabsTrigger>
+              <TabsTrigger value="internal">Intern</TabsTrigger>
+            </TabsList>
 
-      {/* Error message */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertTitle>Fout</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Status overzicht */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Totaal</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {loading ? <Skeleton className="h-8 w-16" /> : filteredStats.total}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-green-600">Online</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold flex items-center">
-              {loading ? (
-                <Skeleton className="h-8 w-16" />
-              ) : (
-                <>
-                  {filteredStats.online}
-                  <span className="text-sm text-muted-foreground ml-2">
-                    ({Math.round((filteredStats.online / filteredStats.total) * 100)}%)
-                  </span>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-amber-600">Traag</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {loading ? <Skeleton className="h-8 w-16" /> : filteredStats.degraded}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-red-600">Offline</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {loading ? <Skeleton className="h-8 w-16" /> : filteredStats.offline}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* API Status Tabs */}
-      <Tabs
-        defaultValue="all"
-        value={activeTab}
-        onValueChange={(value) => {
-          setActiveTab(value)
-          if (value !== activeTab) {
-            fetchApiStatus(value !== "all" ? value : undefined)
-          }
-        }}
-      >
-        <TabsList className="mb-4">
-          <TabsTrigger value="all">Alle API's</TabsTrigger>
-          <TabsTrigger value="clickfunnels">ClickFunnels</TabsTrigger>
-          <TabsTrigger value="stripe">Stripe</TabsTrigger>
-          <TabsTrigger value="internal">Intern</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value={activeTab} className="mt-0">
-          {loading ? (
-            <div className="space-y-4">
-              {[...Array(3)].map((_, i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-3/4" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-4 w-1/2 mb-2" />
-                    <Skeleton className="h-4 w-1/3" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredResults.length === 0 ? (
-                <Card>
-                  <CardContent className="pt-6 text-center text-muted-foreground">
-                    Geen API endpoints gevonden voor deze categorie.
-                  </CardContent>
-                </Card>
-              ) : (
-                filteredResults.map((result: ApiStatusResult) => (
-                  <Card
-                    key={result.endpoint.url}
-                    className={
-                      result.status === "offline"
-                        ? "border-red-200 bg-red-50"
-                        : result.status === "degraded"
-                          ? "border-amber-200 bg-amber-50"
-                          : ""
-                    }
-                  >
+            <TabsContent value={activeTab} className="mt-0">
+              <div className="grid grid-cols-1 gap-4">
+                {filteredResults.map((result, index) => (
+                  <Card key={index}>
                     <CardHeader className="pb-2">
                       <div className="flex justify-between items-start">
                         <div>
-                          <CardTitle className="text-lg flex items-center">
+                          <CardTitle className="text-lg flex items-center gap-2">
                             {result.endpoint.name}
-                            {renderStatusBadge(result.status)}
+                            <Badge className={`${getStatusColor(result.status)} text-white`}>
+                              {result.status === "online"
+                                ? "Online"
+                                : result.status === "offline"
+                                  ? "Offline"
+                                  : result.status === "degraded"
+                                    ? "Traag"
+                                    : "Onbekend"}
+                            </Badge>
                           </CardTitle>
                           <CardDescription>{result.endpoint.description}</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => testEndpoint(result.endpoint)}>
+                        <Button variant="outline" size="sm" onClick={() => testEndpoint(result.endpoint.url)}>
                           Test
                         </Button>
                       </div>
                     </CardHeader>
-                    <CardContent className="pb-2 pt-0">
-                      <div className="text-sm">
-                        <div className="flex items-center mb-1">
-                          <Server size={14} className="mr-2 text-gray-500" />
-                          <span className="font-medium">Endpoint:</span>
-                          <span className="ml-2 text-muted-foreground truncate max-w-md">{result.endpoint.url}</span>
+                    <CardContent className="pb-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-500">Endpoint:</p>
+                          <p className="text-sm break-all">{result.endpoint.url}</p>
                         </div>
-                        <div className="flex items-center mb-1">
-                          <Clock size={14} className="mr-2 text-gray-500" />
-                          <span className="font-medium">Responstijd:</span>
-                          <span className="ml-2 text-muted-foreground">{result.responseTime}ms</span>
+                        <div>
+                          <p className="text-sm font-medium text-gray-500">Responstijd:</p>
+                          <p className="text-sm">{result.responseTime}ms</p>
                         </div>
-                        {result.message && <div className="mt-2 text-sm">{result.message}</div>}
                       </div>
                     </CardContent>
-                    {result.error && (
-                      <CardFooter className="pt-0 pb-4">
-                        <Alert variant="destructive" className="w-full mt-2">
-                          <AlertTitle>Foutmelding</AlertTitle>
-                          <AlertDescription className="text-xs break-all">{result.error}</AlertDescription>
-                        </Alert>
-                      </CardFooter>
-                    )}
+                    <CardFooter className="pt-0">
+                      <div className="w-full">
+                        {result.message && (
+                          <div className="text-sm mt-2">
+                            <span className="font-medium">Bericht: </span>
+                            {result.message}
+                          </div>
+                        )}
+                        {result.error && (
+                          <div className="text-sm text-red-500 mt-2">
+                            <span className="font-medium">Fout: </span>
+                            {result.error}
+                          </div>
+                        )}
+                      </div>
+                    </CardFooter>
                   </Card>
-                ))
-              )}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
     </div>
   )
 }

@@ -1,4 +1,5 @@
-"use server"
+// Verwijder de "use server" directive van dit bestand
+// en verplaats de server-only logica naar de route handler
 
 import {
   CLICKFUNNELS_API_TOKEN,

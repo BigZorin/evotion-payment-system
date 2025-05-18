@@ -55,10 +55,8 @@ export default function AdminDashboardClient({
   const [error, setError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<{
     clickfunnels: boolean
-    stripe: boolean
   }>({
     clickfunnels: true,
-    stripe: true,
   })
 
   // Check if we're on mobile

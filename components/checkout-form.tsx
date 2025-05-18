@@ -3,7 +3,6 @@
 import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import Image from "next/image"
 import type { Product } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -275,50 +274,6 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
             </div>
           </div>
         )}
-      </div>
-
-      <div className="pt-4 border-t border-[#1e1839]/10">
-        <div className="mb-4">
-          <p className="text-[#1e1839] font-medium mb-2">Beschikbare betalingsmethoden:</p>
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center gap-2">
-              <div className="h-5 w-10">
-                <Image
-                  src="/ideal-logo-19535.svg"
-                  alt="iDEAL"
-                  width={60}
-                  height={40}
-                  className="h-full w-full object-contain"
-                />
-              </div>
-              <span className="text-sm font-medium text-[#1e1839]">iDEAL</span>
-            </div>
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center gap-2">
-              <div className="h-5 w-8">
-                <Image
-                  src="/mastercard-logo.png"
-                  alt="Mastercard"
-                  width={60}
-                  height={40}
-                  className="h-full w-full object-contain"
-                />
-              </div>
-              <span className="text-sm font-medium text-[#1e1839]">Creditcard</span>
-            </div>
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center gap-2">
-              <div className="h-5 w-8">
-                <Image
-                  src="/maestro-logo.png"
-                  alt="Maestro"
-                  width={60}
-                  height={40}
-                  className="h-full w-full object-contain"
-                />
-              </div>
-              <span className="text-sm font-medium text-[#1e1839]">Maestro</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <Button
