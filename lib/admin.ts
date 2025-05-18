@@ -3,6 +3,12 @@
 import { stripe } from "@/lib/stripe-server"
 import { products } from "./products"
 import { getProductCourseMapping } from "./products"
+import {
+  CLICKFUNNELS_API_TOKEN,
+  CLICKFUNNELS_SUBDOMAIN,
+  CLICKFUNNELS_WORKSPACE_ID,
+  CLICKFUNNELS_NUMERIC_WORKSPACE_ID,
+} from "./config"
 
 // Type definities voor statistieken
 export interface DashboardStats {
@@ -110,18 +116,18 @@ export interface ClickFunnelsProduct {
  * @returns Het product of null als het niet gevonden is
  */
 export async function getClickFunnelsProduct(productId: string) {
-  if (!process.env.CLICKFUNNELS_API_TOKEN) {
+  if (!CLICKFUNNELS_API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }
 
-  if (!process.env.CLICKFUNNELS_SUBDOMAIN) {
+  if (!CLICKFUNNELS_SUBDOMAIN) {
     throw new Error("ClickFunnels subdomain is niet geconfigureerd")
   }
 
   try {
     console.log(`Fetching ClickFunnels product with ID: ${productId}`)
 
-    const subdomain = process.env.CLICKFUNNELS_SUBDOMAIN
+    const subdomain = CLICKFUNNELS_SUBDOMAIN
     const API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/products/${productId}`
 
     console.log(`API URL: ${API_URL}`)
@@ -130,7 +136,7 @@ export async function getClickFunnelsProduct(productId: string) {
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
       },
       cache: "no-store", // Zorg ervoor dat we altijd verse data ophalen
     })
@@ -157,18 +163,18 @@ export async function getClickFunnelsProduct(productId: string) {
  * @returns De variant of null als deze niet gevonden is
  */
 export async function getClickFunnelsVariant(variantId: string | number) {
-  if (!process.env.CLICKFUNNELS_API_TOKEN) {
+  if (!CLICKFUNNELS_API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }
 
-  if (!process.env.CLICKFUNNELS_SUBDOMAIN) {
+  if (!CLICKFUNNELS_SUBDOMAIN) {
     throw new Error("ClickFunnels subdomain is niet geconfigureerd")
   }
 
   try {
     console.log(`Fetching ClickFunnels variant with ID: ${variantId}`)
 
-    const subdomain = process.env.CLICKFUNNELS_SUBDOMAIN
+    const subdomain = CLICKFUNNELS_SUBDOMAIN
     const API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/products/variants/${variantId}`
 
     console.log(`API URL: ${API_URL}`)
@@ -177,7 +183,7 @@ export async function getClickFunnelsVariant(variantId: string | number) {
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
       },
       cache: "no-store", // Zorg ervoor dat we altijd verse data ophalen
     })
@@ -204,18 +210,18 @@ export async function getClickFunnelsVariant(variantId: string | number) {
  * @returns De varianten van het product
  */
 export async function getProductVariants(productId: string) {
-  if (!process.env.CLICKFUNNELS_API_TOKEN) {
+  if (!CLICKFUNNELS_API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }
 
-  if (!process.env.CLICKFUNNELS_SUBDOMAIN) {
+  if (!CLICKFUNNELS_SUBDOMAIN) {
     throw new Error("ClickFunnels subdomain is niet geconfigureerd")
   }
 
   try {
     console.log(`Fetching variants for product with ID: ${productId}`)
 
-    const subdomain = process.env.CLICKFUNNELS_SUBDOMAIN
+    const subdomain = CLICKFUNNELS_SUBDOMAIN
     const API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/products/${productId}/variants`
 
     console.log(`API URL: ${API_URL}`)
@@ -224,7 +230,7 @@ export async function getProductVariants(productId: string) {
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
       },
       cache: "no-store",
     })
@@ -247,18 +253,18 @@ export async function getProductVariants(productId: string) {
  * @returns De prijzen van het product
  */
 export async function getProductPrices(productId: string) {
-  if (!process.env.CLICKFUNNELS_API_TOKEN) {
+  if (!CLICKFUNNELS_API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }
 
-  if (!process.env.CLICKFUNNELS_SUBDOMAIN) {
+  if (!CLICKFUNNELS_SUBDOMAIN) {
     throw new Error("ClickFunnels subdomain is niet geconfigureerd")
   }
 
   try {
     console.log(`Fetching prices for product with ID: ${productId}`)
 
-    const subdomain = process.env.CLICKFUNNELS_SUBDOMAIN
+    const subdomain = CLICKFUNNELS_SUBDOMAIN
     const API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/products/${productId}/prices`
 
     console.log(`API URL: ${API_URL}`)
@@ -267,7 +273,7 @@ export async function getProductPrices(productId: string) {
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
       },
       cache: "no-store",
     })
@@ -290,18 +296,18 @@ export async function getProductPrices(productId: string) {
  * @returns De prijzen van de variant
  */
 export async function getVariantPrices(variantId: string | number) {
-  if (!process.env.CLICKFUNNELS_API_TOKEN) {
+  if (!CLICKFUNNELS_API_TOKEN) {
     throw new Error("ClickFunnels API token is niet geconfigureerd")
   }
 
-  if (!process.env.CLICKFUNNELS_SUBDOMAIN) {
+  if (!CLICKFUNNELS_SUBDOMAIN) {
     throw new Error("ClickFunnels subdomain is niet geconfigureerd")
   }
 
   try {
     console.log(`Fetching prices for variant with ID: ${variantId}`)
 
-    const subdomain = process.env.CLICKFUNNELS_SUBDOMAIN
+    const subdomain = CLICKFUNNELS_SUBDOMAIN
     const API_URL = `https://${subdomain}.myclickfunnels.com/api/v2/products/variants/${variantId}/prices`
 
     console.log(`API URL: ${API_URL}`)
@@ -310,7 +316,7 @@ export async function getVariantPrices(variantId: string | number) {
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+        Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
       },
       cache: "no-store",
     })
@@ -330,9 +336,9 @@ export async function getVariantPrices(variantId: string | number) {
 // Functie om cursussen op te halen van ClickFunnels API
 export async function getCourses(): Promise<Course[]> {
   try {
-    const subdomain = process.env.CLICKFUNNELS_SUBDOMAIN
-    const workspaceId = process.env.CLICKFUNNELS_WORKSPACE_ID
-    const apiToken = process.env.CLICKFUNNELS_API_TOKEN
+    const subdomain = CLICKFUNNELS_SUBDOMAIN
+    const workspaceId = CLICKFUNNELS_WORKSPACE_ID
+    const apiToken = CLICKFUNNELS_API_TOKEN
 
     if (!subdomain || !workspaceId || !apiToken) {
       console.error("ClickFunnels configuratie ontbreekt")
@@ -366,14 +372,14 @@ export async function getCourses(): Promise<Course[]> {
 // Functie om producten op te halen van ClickFunnels API
 export async function getClickFunnelsProducts(): Promise<ClickFunnelsProduct[]> {
   try {
-    const subdomain = process.env.CLICKFUNNELS_SUBDOMAIN
-    const workspaceId = process.env.CLICKFUNNELS_WORKSPACE_ID
-    const apiToken = process.env.CLICKFUNNELS_API_TOKEN
+    const subdomain = CLICKFUNNELS_SUBDOMAIN
+    const workspaceId = CLICKFUNNELS_NUMERIC_WORKSPACE_ID // Gebruik de numerieke workspace ID
+    const apiToken = CLICKFUNNELS_API_TOKEN
 
     if (!subdomain || !workspaceId || !apiToken) {
       console.error("ClickFunnels configuratie ontbreekt")
       console.log("CLICKFUNNELS_SUBDOMAIN:", subdomain)
-      console.log("CLICKFUNNELS_WORKSPACE_ID:", workspaceId)
+      console.log("CLICKFUNNELS_NUMERIC_WORKSPACE_ID:", workspaceId)
       console.log("CLICKFUNNELS_API_TOKEN:", apiToken ? "Aanwezig" : "Ontbreekt")
       throw new Error("ClickFunnels configuratie ontbreekt")
     }

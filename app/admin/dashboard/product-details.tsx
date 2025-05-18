@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Copy, ExternalLink, BookOpen, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Copy, ExternalLink, BookOpen, AlertTriangle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -35,12 +35,10 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
         const response = await fetch(`/api/admin/products/${productId}`)
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.error || `Error fetching product: ${response.status}`)
+          throw new Error(`Error fetching product: ${response.status}`)
         }
 
         const data = await response.json()
-        console.log("Product details:", data)
         setProduct(data.product || data)
       } catch (err) {
         console.error("Error fetching product details:", err)
@@ -55,58 +53,40 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
     }
   }, [productId])
 
-  // Separate useEffect for fetching courses to isolate errors
   useEffect(() => {
-    async function fetchProductCourses() {
-      if (!productId) return
-
-      setIsLoadingCourses(true)
-      setCourseError(null)
-
-      try {
-        console.log(`Fetching courses for product ID: ${productId}`)
-
-        // Add a small delay to prevent race conditions
-        await new Promise((resolve) => setTimeout(resolve, 100))
-
-        const response = await fetch(`/api/admin/products/${productId}/courses`, {
-          // Add cache: no-store to prevent caching issues
-          cache: "no-store",
-        })
-
-        // Log the raw response for debugging
-        console.log(`Course API response status: ${response.status}`)
-
-        if (!response.ok) {
-          const errorText = `Error fetching courses: ${response.status}`
-          console.error(errorText)
-          setCourseError(errorText)
-          setCourses([])
-          return
-        }
-
-        const data = await response.json()
-        console.log("Product courses data:", data)
-
-        if (Array.isArray(data.courses)) {
-          setCourses(data.courses)
-        } else {
-          console.warn("Courses data is not an array:", data.courses)
-          setCourses([])
-        }
-      } catch (err) {
-        console.error("Error fetching product courses:", err)
-        setCourseError(`Error: ${err instanceof Error ? err.message : String(err)}`)
-        setCourses([])
-      } finally {
-        setIsLoadingCourses(false)
-      }
-    }
-
-    if (productId) {
-      fetchProductCourses()
-    }
+    fetchProductCourses()
   }, [productId])
+
+  async function fetchProductCourses() {
+    if (!productId) return
+
+    setIsLoadingCourses(true)
+    setCourseError(null)
+
+    try {
+      // Gebruik de directe API route voor betere betrouwbaarheid
+      const response = await fetch(`/api/admin/products/${productId}/courses-direct`, {
+        cache: "no-store",
+      })
+
+      if (!response.ok) {
+        throw new Error(`Fout bij het ophalen van cursussen: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (Array.isArray(data.courses)) {
+        setCourses(data.courses)
+      } else {
+        setCourses([])
+      }
+    } catch (err) {
+      console.error("Error fetching product courses:", err)
+      setCourseError(`Fout bij het ophalen van cursussen. Probeer het later opnieuw.`)
+    } finally {
+      setIsLoadingCourses(false)
+    }
+  }
 
   // Generate payment link
   const generatePaymentLink = (product: ClickFunnelsProduct) => {
@@ -313,7 +293,16 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
               <CardTitle>Cursussen</CardTitle>
               <CardDescription>Cursussen die bij dit product horen (via collections)</CardDescription>
             </div>
-            <BookOpen className="h-5 w-5 text-[#1e1839]" />
+            <div className="flex items-center gap-2">
+              {isLoadingCourses ? (
+                <Skeleton className="h-5 w-5 rounded-full" />
+              ) : (
+                <Button variant="ghost" size="icon" onClick={fetchProductCourses} title="Vernieuwen">
+                  <RefreshCw className="h-5 w-5 text-[#1e1839]" />
+                </Button>
+              )}
+              <BookOpen className="h-5 w-5 text-[#1e1839]" />
+            </div>
           </CardHeader>
           <CardContent>
             {courseError && (
@@ -321,8 +310,17 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Fout bij het ophalen van cursussen</AlertTitle>
                 <AlertDescription>
-                  Er is een fout opgetreden bij het ophalen van de cursussen. De functionaliteit is tijdelijk
-                  uitgeschakeld.
+                  <p>{courseError}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => {
+                      window.open("/admin/api-test", "_blank")
+                    }}
+                  >
+                    API configuratie testen
+                  </Button>
                 </AlertDescription>
               </Alert>
             )}

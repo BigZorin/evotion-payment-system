@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-
+import Image from "next/image"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import type { Product } from "@/lib/types"
@@ -281,7 +281,8 @@ export function CheckoutForm({ product }: CheckoutFormProps) {
         <div className="mb-4">
           <p className="text-[#1e1839] font-medium mb-2">Beschikbare betalingsmethoden:</p>
           <div className="flex flex-wrap gap-2 items-center">
-            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
+            <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center gap-2">
+              <Image src="/ideal-logo-1024.png" alt="iDEAL" width={20} height={20} className="h-5 w-auto" />
               <span className="text-sm font-medium text-[#1e1839]">iDEAL</span>
             </div>
             <div className="bg-[#1e1839]/5 px-3 py-1 rounded-md flex items-center">
