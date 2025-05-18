@@ -1,28 +1,16 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Copy, ExternalLink, BookOpen } from "lucide-react"
+import { ArrowLeft, Copy, ExternalLink, BookOpen, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { ClickFunnelsProduct } from "@/lib/admin"
 import type { CourseCollection } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
-
-// Cursus mapping - dit zou idealiter uit een API komen, maar voor nu hardcoden we het
-const COURSE_ID_TO_NAME: Record<string, string> = {
-  eWbLVk: "12-Weken Vetverlies Programma",
-  vgDnxN: "Uitleg van Oefeningen",
-  JMaGxK: "Evotion-Coaching App Handleiding",
-  "basic-course-1": "Basis Cursus",
-  "premium-course-1": "Premium Cursus 1",
-  "premium-course-2": "Premium Cursus 2",
-  "vip-course-1": "VIP Cursus 1",
-  "vip-course-2": "VIP Cursus 2",
-  "vip-course-3": "VIP Cursus 3",
-}
 
 interface ProductDetailsProps {
   productId: string
@@ -35,6 +23,7 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingCourses, setIsLoadingCourses] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [courseError, setCourseError] = useState<string | null>(null)
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
 
   useEffect(() => {
@@ -61,29 +50,60 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
       }
     }
 
+    if (productId) {
+      fetchProductDetails()
+    }
+  }, [productId])
+
+  // Separate useEffect for fetching courses to isolate errors
+  useEffect(() => {
     async function fetchProductCourses() {
+      if (!productId) return
+
       setIsLoadingCourses(true)
+      setCourseError(null)
 
       try {
-        const response = await fetch(`/api/admin/products/${productId}/courses`)
+        console.log(`Fetching courses for product ID: ${productId}`)
+
+        // Add a small delay to prevent race conditions
+        await new Promise((resolve) => setTimeout(resolve, 100))
+
+        const response = await fetch(`/api/admin/products/${productId}/courses`, {
+          // Add cache: no-store to prevent caching issues
+          cache: "no-store",
+        })
+
+        // Log the raw response for debugging
+        console.log(`Course API response status: ${response.status}`)
 
         if (!response.ok) {
-          console.error(`Error fetching courses: ${response.status}`)
+          const errorText = `Error fetching courses: ${response.status}`
+          console.error(errorText)
+          setCourseError(errorText)
+          setCourses([])
           return
         }
 
         const data = await response.json()
-        console.log("Product courses:", data)
-        setCourses(data.courses || [])
+        console.log("Product courses data:", data)
+
+        if (Array.isArray(data.courses)) {
+          setCourses(data.courses)
+        } else {
+          console.warn("Courses data is not an array:", data.courses)
+          setCourses([])
+        }
       } catch (err) {
         console.error("Error fetching product courses:", err)
+        setCourseError(`Error: ${err instanceof Error ? err.message : String(err)}`)
+        setCourses([])
       } finally {
         setIsLoadingCourses(false)
       }
     }
 
     if (productId) {
-      fetchProductDetails()
       fetchProductCourses()
     }
   }, [productId])
@@ -296,6 +316,17 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
             <BookOpen className="h-5 w-5 text-[#1e1839]" />
           </CardHeader>
           <CardContent>
+            {courseError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Fout bij het ophalen van cursussen</AlertTitle>
+                <AlertDescription>
+                  Er is een fout opgetreden bij het ophalen van de cursussen. De functionaliteit is tijdelijk
+                  uitgeschakeld.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {isLoadingCourses ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[1, 2, 3].map((i) => (

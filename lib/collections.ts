@@ -2,16 +2,15 @@ import type { ClickFunnelsCollection, CourseCollection } from "./types"
 import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN, CLICKFUNNELS_WORKSPACE_ID } from "./config"
 
 // Constante voor de prefix van cursus collections
-export async function getCourseCollectionPrefix(): Promise<string> {
-  return "COURSE:"
-}
+const COURSE_COLLECTION_PREFIX = "COURSE:"
 
 // Functie om alle collections op te halen
 export async function getClickFunnelsCollections(): Promise<ClickFunnelsCollection[]> {
   "use server"
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN || !CLICKFUNNELS_WORKSPACE_ID) {
-      throw new Error("ClickFunnels configuratie ontbreekt")
+      console.error("ClickFunnels configuratie ontbreekt")
+      return [] // Return empty array instead of throwing
     }
 
     console.log(`Fetching collections from ClickFunnels API`)
@@ -28,23 +27,24 @@ export async function getClickFunnelsCollections(): Promise<ClickFunnelsCollecti
 
     if (!response.ok) {
       console.error(`ClickFunnels API error: ${response.status} ${response.statusText}`)
-      throw new Error(`ClickFunnels API error: ${response.status}`)
+      return [] // Return empty array instead of throwing
     }
 
     const collections = await response.json()
     return collections
   } catch (error) {
     console.error("Error fetching ClickFunnels collections:", error)
-    throw error
+    return [] // Return empty array instead of throwing
   }
 }
 
 // Functie om een specifieke collection op te halen
-export async function getClickFunnelsCollection(collectionId: number | string): Promise<ClickFunnelsCollection> {
+export async function getClickFunnelsCollection(collectionId: number | string): Promise<ClickFunnelsCollection | null> {
   "use server"
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
-      throw new Error("ClickFunnels configuratie ontbreekt")
+      console.error("ClickFunnels configuratie ontbreekt")
+      return null // Return null instead of throwing
     }
 
     console.log(`Fetching collection with ID: ${collectionId}`)
@@ -61,19 +61,19 @@ export async function getClickFunnelsCollection(collectionId: number | string): 
 
     if (!response.ok) {
       console.error(`ClickFunnels API error: ${response.status} ${response.statusText}`)
-      throw new Error(`ClickFunnels API error: ${response.status}`)
+      return null // Return null instead of throwing
     }
 
     const collection = await response.json()
     return collection
   } catch (error) {
     console.error(`Error fetching ClickFunnels collection ${collectionId}:`, error)
-    throw error
+    return null // Return null instead of throwing
   }
 }
 
 // Functie om cursus ID uit de collection description te halen
-export async function extractCourseIdFromDescription(description: string | null): Promise<string | null> {
+export function extractCourseIdFromDescription(description: string | null): string | null {
   if (!description) return null
 
   // Zoek naar een patroon zoals "course_id:eWbLVk" of "courseId:eWbLVk"
@@ -86,26 +86,31 @@ export async function getCourseCollections(): Promise<CourseCollection[]> {
   "use server"
   try {
     const allCollections = await getClickFunnelsCollections()
+    console.log(`Retrieved ${allCollections.length} collections from ClickFunnels`)
 
     // Filter collections die beginnen met de prefix
     const courseCollections = allCollections.filter(
-      async (collection) => collection.name && collection.name.startsWith(await getCourseCollectionPrefix()),
+      (collection) => collection.name && collection.name.startsWith(COURSE_COLLECTION_PREFIX),
     )
+    console.log(`Found ${courseCollections.length} course collections`)
 
     // Map naar het CourseCollection formaat
-    return courseCollections.map(async (collection) => {
+    return courseCollections.map((collection) => {
       // Haal de cursusnaam uit de collection naam (verwijder de prefix)
-      const courseName = collection.name.replace(await getCourseCollectionPrefix(), "").trim()
+      const courseName = collection.name.replace(COURSE_COLLECTION_PREFIX, "").trim()
 
       // Haal de cursus ID uit de description
-      const courseId = (await extractCourseIdFromDescription(collection.description)) || "unknown"
+      const courseId = extractCourseIdFromDescription(collection.description) || "unknown"
+
+      // Ensure product_ids is always an array
+      const productIds = Array.isArray(collection.product_ids) ? collection.product_ids : []
 
       return {
         collectionId: collection.id,
         collectionName: collection.name,
         courseId,
         courseName,
-        productIds: collection.product_ids || [],
+        productIds,
       }
     })
   } catch (error) {
@@ -118,10 +123,31 @@ export async function getCourseCollections(): Promise<CourseCollection[]> {
 export async function getCoursesForProduct(productId: number | string): Promise<CourseCollection[]> {
   "use server"
   try {
+    console.log(`Getting courses for product ID: ${productId}`)
+
+    if (!productId) {
+      console.warn("No product ID provided to getCoursesForProduct")
+      return []
+    }
+
     const courseCollections = await getCourseCollections()
+    console.log(`Retrieved ${courseCollections.length} course collections`)
+
+    const numericProductId = Number(productId)
+
+    if (isNaN(numericProductId)) {
+      console.warn(`Invalid product ID: ${productId} (not a number)`)
+      return []
+    }
 
     // Filter collections die dit product bevatten
-    return courseCollections.filter((collection) => collection.productIds.includes(Number(productId)))
+    const matchingCollections = courseCollections.filter((collection) => {
+      // Ensure productIds is an array and includes the product ID
+      return Array.isArray(collection.productIds) && collection.productIds.includes(numericProductId)
+    })
+
+    console.log(`Found ${matchingCollections.length} collections for product ${productId}`)
+    return matchingCollections
   } catch (error) {
     console.error(`Error fetching courses for product ${productId}:`, error)
     return []
@@ -137,7 +163,7 @@ export async function getProductsForCourse(courseId: string): Promise<number[]> 
     // Zoek de collection voor deze cursus
     const courseCollection = courseCollections.find((collection) => collection.courseId === courseId)
 
-    return courseCollection ? courseCollection.productIds : []
+    return courseCollection && Array.isArray(courseCollection.productIds) ? courseCollection.productIds : []
   } catch (error) {
     console.error(`Error fetching products for course ${courseId}:`, error)
     return []
