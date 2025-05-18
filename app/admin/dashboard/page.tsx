@@ -1,33 +1,34 @@
-import { products } from "@/lib/products"
+import { Suspense } from "react"
 import AdminDashboardClient from "./client"
+import { products } from "@/lib/products"
 
-// Gebruik export const dynamic = 'force-static' om de pagina statisch te genereren
+// Forceer statische generatie om server functies niet tijdens render aan te roepen
 export const dynamic = "force-static"
 
-export default function AdminDashboard() {
-  // Gebruik statische fallback data
-  const dashboardData = {
-    stats: {
-      products: { total: products.length, trend: 0, trendLabel: "sinds vorige maand" },
-      courses: { total: 3, trend: 0, trendLabel: "sinds vorige maand" },
-      payments: { total: 0, trend: 0, trendLabel: "sinds vorige week" },
-      enrollments: { total: 0, trend: 0, trendLabel: "sinds vorige week" },
-    },
-    recentActivity: [],
-    recentEnrollments: [],
-    courses: [],
-    clickfunnelsProducts: [],
-    localProducts: products,
+export default async function AdminDashboardPage() {
+  // Gebruik statische fallback data voor de initiële render
+  const initialStats = {
+    products: { total: products.length, trend: 0, trendLabel: "sinds vorige maand" },
+    courses: { total: 3, trend: 0, trendLabel: "sinds vorige maand" },
+    payments: { total: 0, trend: 0, trendLabel: "sinds vorige week" },
+    enrollments: { total: 0, trend: 0, trendLabel: "sinds vorige week" },
   }
 
+  const initialRecentActivity = []
+  const initialRecentEnrollments = []
+  const initialCourses = []
+  const initialClickfunnelsProducts = []
+
   return (
-    <AdminDashboardClient
-      initialStats={dashboardData.stats}
-      initialRecentActivity={dashboardData.recentActivity}
-      initialRecentEnrollments={dashboardData.recentEnrollments}
-      initialCourses={dashboardData.courses}
-      initialClickfunnelsProducts={dashboardData.clickfunnelsProducts}
-      initialLocalProducts={dashboardData.localProducts}
-    />
+    <Suspense fallback={<div>Loading...</div>}>
+      <AdminDashboardClient
+        initialStats={initialStats}
+        initialRecentActivity={initialRecentActivity}
+        initialRecentEnrollments={initialRecentEnrollments}
+        initialCourses={initialCourses}
+        initialClickfunnelsProducts={initialClickfunnelsProducts}
+        initialLocalProducts={products}
+      />
+    </Suspense>
   )
 }

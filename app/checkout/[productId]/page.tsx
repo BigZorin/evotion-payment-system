@@ -223,15 +223,15 @@ export default async function CheckoutPage({ params }: { params: { productId: st
             <div className="mt-8">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Veilig betalen met</h2>
               <div className="flex space-x-4 items-center">
-                <Image src="/ideal-payment.png" alt="iDEAL" width={60} height={30} className="h-8 w-auto" />
-                <Image
-                  src="/mastercard-logo-abstract.png"
-                  alt="Mastercard"
-                  width={60}
-                  height={30}
-                  className="h-8 w-auto"
-                />
-                <Image src="/visa-card-generic.png" alt="Visa" width={60} height={30} className="h-8 w-auto" />
+                <div className="h-8 w-16 relative">
+                  <Image src="/ideal-payment.png" alt="iDEAL" fill style={{ objectFit: "contain" }} />
+                </div>
+                <div className="h-8 w-16 relative">
+                  <Image src="/mastercard-logo-abstract.png" alt="Mastercard" fill style={{ objectFit: "contain" }} />
+                </div>
+                <div className="h-8 w-16 relative">
+                  <Image src="/visa-card-generic.png" alt="Visa" fill style={{ objectFit: "contain" }} />
+                </div>
               </div>
             </div>
           </div>

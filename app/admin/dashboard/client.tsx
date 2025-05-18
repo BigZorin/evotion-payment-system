@@ -1,10 +1,20 @@
 "use client"
 
+import { CardFooter } from "@/components/ui/card"
+
+import { CardContent } from "@/components/ui/card"
+
+import { CardHeader } from "@/components/ui/card"
+
+import { Card } from "@/components/ui/card"
+
 import { useState, useEffect } from "react"
 import { Menu, X, Home, ShoppingBag, LinkIcon, Search, RefreshCw } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "@/components/ui/use-toast"
 import ProductsTab from "./products"
 import ProductDetails from "./product-details"
 import BetaallinksTabComponent from "./betaallinks"
@@ -41,6 +51,7 @@ export default function AdminDashboardClient({
   const [courses, setCourses] = useState(initialCourses || [])
   const [clickfunnelsProducts, setClickfunnelsProducts] = useState(initialClickfunnelsProducts || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
@@ -60,14 +71,11 @@ export default function AdminDashboardClient({
     }
   }, [])
 
-  // Wijzig de useEffect die data laadt
-
-  // Laad data als deze niet beschikbaar is
+  // Laad data bij eerste render
   useEffect(() => {
     async function loadDashboardData() {
-      // Altijd data laden bij eerste render, ongeacht of we al producten hebben
       try {
-        setIsRefreshing(true)
+        setIsLoading(true)
         setError(null)
 
         const response = await fetch("/api/admin/dashboard")
@@ -87,19 +95,25 @@ export default function AdminDashboardClient({
         console.error("Error loading dashboard data:", err)
         setError("Er is een fout opgetreden bij het laden van de dashboard gegevens")
       } finally {
-        setIsRefreshing(false)
+        setIsLoading(false)
       }
     }
 
-    // Altijd data laden bij eerste render
     loadDashboardData()
-  }, []) // Verwijder clickfunnelsProducts uit de dependency array
+  }, []) // Leeg dependency array zorgt ervoor dat dit alleen bij eerste render gebeurt
 
   // Functie om dashboard data te verversen
   const refreshDashboard = async () => {
     try {
       setIsRefreshing(true)
       setError(null)
+
+      // Toon toast om aan te geven dat we aan het verversen zijn
+      toast({
+        title: "Dashboard verversen",
+        description: "Bezig met het ophalen van de laatste gegevens...",
+        duration: 3000,
+      })
 
       const response = await fetch("/api/admin/dashboard")
 
@@ -114,9 +128,24 @@ export default function AdminDashboardClient({
       setRecentEnrollments(data.recentEnrollments)
       setCourses(data.courses)
       setClickfunnelsProducts(data.clickfunnelsProducts)
+
+      // Toon succes toast
+      toast({
+        title: "Dashboard ververst",
+        description: "De gegevens zijn succesvol bijgewerkt.",
+        duration: 3000,
+      })
     } catch (err) {
       console.error("Error refreshing dashboard data:", err)
       setError("Er is een fout opgetreden bij het verversen van de dashboard gegevens")
+
+      // Toon fout toast
+      toast({
+        title: "Fout bij verversen",
+        description: "Er is een fout opgetreden bij het verversen van de gegevens.",
+        variant: "destructive",
+        duration: 5000,
+      })
     } finally {
       setIsRefreshing(false)
     }
@@ -245,6 +274,7 @@ export default function AdminDashboardClient({
       {error && (
         <div className="container mx-auto px-4 py-4">
           <Alert variant="destructive">
+            <AlertTitle>Fout</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         </div>
@@ -264,21 +294,44 @@ export default function AdminDashboardClient({
               <TabsTrigger value="betaallinks">Betaallinks</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="products">
-              {selectedProductId ? (
-                <ProductDetails productId={selectedProductId} onBack={handleBackToProducts} />
-              ) : (
-                <ProductsTab
-                  initialProducts={clickfunnelsProducts}
-                  onSelectProduct={handleSelectProduct}
-                  searchTerm={searchTerm}
-                />
-              )}
-            </TabsContent>
+            {isLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[...Array(6)].map((_, i) => (
+                  <Card key={i} className="overflow-hidden">
+                    <CardHeader className="p-4 pb-2">
+                      <Skeleton className="h-6 w-3/4" />
+                      <Skeleton className="h-4 w-1/4 mt-2" />
+                    </CardHeader>
+                    <CardContent className="p-4 pt-2">
+                      <Skeleton className="h-4 w-1/2 mb-2" />
+                      <Skeleton className="h-4 w-1/3" />
+                    </CardContent>
+                    <CardFooter className="p-4 pt-0 flex justify-between">
+                      <Skeleton className="h-9 w-24" />
+                      <Skeleton className="h-9 w-20" />
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <>
+                <TabsContent value="products">
+                  {selectedProductId ? (
+                    <ProductDetails productId={selectedProductId} onBack={handleBackToProducts} />
+                  ) : (
+                    <ProductsTab
+                      initialProducts={clickfunnelsProducts}
+                      onSelectProduct={handleSelectProduct}
+                      searchTerm={searchTerm}
+                    />
+                  )}
+                </TabsContent>
 
-            <TabsContent value="betaallinks">
-              <BetaallinksTabComponent initialProducts={clickfunnelsProducts} searchTerm={searchTerm} />
-            </TabsContent>
+                <TabsContent value="betaallinks">
+                  <BetaallinksTabComponent initialProducts={clickfunnelsProducts} searchTerm={searchTerm} />
+                </TabsContent>
+              </>
+            )}
           </Tabs>
         </div>
       </main>

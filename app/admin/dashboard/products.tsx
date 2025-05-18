@@ -44,12 +44,16 @@ export default function ProductsTab({ initialProducts, onSelectProduct, searchTe
   const formatPrice = (price?: number, currency = "EUR") => {
     if (!price) return "Prijs niet beschikbaar"
 
-    // Als de prijs kleiner is dan 10, gaan we ervan uit dat het in euro's is en vermenigvuldigen we met 100
+    // Verbeterde detectie: als de prijs kleiner is dan 10, gaan we ervan uit dat het in euro's is
+    // Anders gaan we ervan uit dat het in centen is
+    // Dit is een heuristiek die werkt voor de meeste gevallen
     const priceInCents = price < 10 ? price * 100 : price
 
     return new Intl.NumberFormat("nl-NL", {
       style: "currency",
       currency: currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(priceInCents / 100)
   }
 

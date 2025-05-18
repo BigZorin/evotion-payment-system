@@ -7,20 +7,32 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * Formatteert een bedrag als valuta
- * @param amount Het bedrag om te formatteren
+ * @param amount Het bedrag dat geformatteerd moet worden
  * @param currency De valuta (standaard EUR)
- * @param locale De locale (standaard nl-NL)
- * @returns Geformatteerde valutastring
+ * @returns Geformatteerd bedrag als string
  */
-export function formatCurrency(amount: number, currency = "EUR", locale = "nl-NL"): string {
-  // Controleer of het bedrag al in centen is (kleine bedragen zoals 2.57 zijn waarschijnlijk in euro's)
-  // Als het bedrag kleiner is dan 10, gaan we ervan uit dat het in euro's is en vermenigvuldigen we met 100
-  const amountInCents = amount < 10 ? amount * 100 : amount
+export function formatCurrency(amount: number | string | undefined, currency = "EUR"): string {
+  if (amount === undefined || amount === null) {
+    return "Prijs niet beschikbaar"
+  }
 
-  return new Intl.NumberFormat(locale, {
+  // Converteer naar nummer als het een string is
+  const numericAmount = typeof amount === "string" ? Number.parseFloat(amount) : amount
+
+  if (isNaN(numericAmount)) {
+    return "Ongeldige prijs"
+  }
+
+  // Detecteer of het bedrag in centen of euro's is
+  // Als het bedrag kleiner is dan 10, gaan we ervan uit dat het in euro's is
+  // Anders gaan we ervan uit dat het in centen is
+  // Dit is een heuristiek die werkt voor de meeste gevallen
+  const amountInEuros = numericAmount < 10 ? numericAmount : numericAmount / 100
+
+  return new Intl.NumberFormat("nl-NL", {
     style: "currency",
     currency: currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amountInCents)
+  }).format(amountInEuros)
 }
