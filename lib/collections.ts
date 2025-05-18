@@ -1,13 +1,14 @@
-"use server"
-
 import type { ClickFunnelsCollection, CourseCollection } from "./types"
 import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN, CLICKFUNNELS_WORKSPACE_ID } from "./config"
 
 // Constante voor de prefix van cursus collections
-export const COURSE_COLLECTION_PREFIX = "COURSE:"
+export async function getCourseCollectionPrefix(): Promise<string> {
+  return "COURSE:"
+}
 
 // Functie om alle collections op te halen
 export async function getClickFunnelsCollections(): Promise<ClickFunnelsCollection[]> {
+  "use server"
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN || !CLICKFUNNELS_WORKSPACE_ID) {
       throw new Error("ClickFunnels configuratie ontbreekt")
@@ -40,6 +41,7 @@ export async function getClickFunnelsCollections(): Promise<ClickFunnelsCollecti
 
 // Functie om een specifieke collection op te halen
 export async function getClickFunnelsCollection(collectionId: number | string): Promise<ClickFunnelsCollection> {
+  "use server"
   try {
     if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
       throw new Error("ClickFunnels configuratie ontbreekt")
@@ -71,7 +73,7 @@ export async function getClickFunnelsCollection(collectionId: number | string): 
 }
 
 // Functie om cursus ID uit de collection description te halen
-export function extractCourseIdFromDescription(description: string | null): string | null {
+export async function extractCourseIdFromDescription(description: string | null): Promise<string | null> {
   if (!description) return null
 
   // Zoek naar een patroon zoals "course_id:eWbLVk" of "courseId:eWbLVk"
@@ -81,21 +83,22 @@ export function extractCourseIdFromDescription(description: string | null): stri
 
 // Functie om alle cursus collections op te halen
 export async function getCourseCollections(): Promise<CourseCollection[]> {
+  "use server"
   try {
     const allCollections = await getClickFunnelsCollections()
 
     // Filter collections die beginnen met de prefix
     const courseCollections = allCollections.filter(
-      (collection) => collection.name && collection.name.startsWith(COURSE_COLLECTION_PREFIX),
+      async (collection) => collection.name && collection.name.startsWith(await getCourseCollectionPrefix()),
     )
 
     // Map naar het CourseCollection formaat
-    return courseCollections.map((collection) => {
+    return courseCollections.map(async (collection) => {
       // Haal de cursusnaam uit de collection naam (verwijder de prefix)
-      const courseName = collection.name.replace(COURSE_COLLECTION_PREFIX, "").trim()
+      const courseName = collection.name.replace(await getCourseCollectionPrefix(), "").trim()
 
       // Haal de cursus ID uit de description
-      const courseId = extractCourseIdFromDescription(collection.description) || "unknown"
+      const courseId = (await extractCourseIdFromDescription(collection.description)) || "unknown"
 
       return {
         collectionId: collection.id,
@@ -113,6 +116,7 @@ export async function getCourseCollections(): Promise<CourseCollection[]> {
 
 // Functie om alle cursussen voor een product op te halen
 export async function getCoursesForProduct(productId: number | string): Promise<CourseCollection[]> {
+  "use server"
   try {
     const courseCollections = await getCourseCollections()
 
@@ -126,6 +130,7 @@ export async function getCoursesForProduct(productId: number | string): Promise<
 
 // Functie om alle producten voor een cursus op te halen
 export async function getProductsForCourse(courseId: string): Promise<number[]> {
+  "use server"
   try {
     const courseCollections = await getCourseCollections()
 
@@ -141,6 +146,7 @@ export async function getProductsForCourse(courseId: string): Promise<number[]> 
 
 // Functie om een mapping te maken van cursus ID naar cursusnaam
 export async function getCoursesMapping(): Promise<Record<string, string>> {
+  "use server"
   try {
     const courseCollections = await getCourseCollections()
 
