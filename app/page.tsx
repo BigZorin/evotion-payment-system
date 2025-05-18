@@ -1,4 +1,3 @@
-import Image from "next/image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 
@@ -8,13 +7,7 @@ export default function Home() {
       {/* Header */}
       <header className="container mx-auto px-4 py-6 border-b border-gray-200">
         <div className="flex justify-center">
-          <Image
-            src="/images/evotion-logo-black.png"
-            alt="Evotion Coaching"
-            width={180}
-            height={50}
-            className="h-10 w-auto"
-          />
+          <img src="/images/evotion-logo-black.png" alt="Evotion Coaching" className="h-10 w-auto" />
         </div>
       </header>
 
@@ -62,48 +55,19 @@ export default function Home() {
             gegevens zijn veilig en worden versleuteld verzonden.
           </p>
           <div className="flex justify-center gap-6 items-center">
-            {/* Visa Logo */}
-            <div className="h-8 w-12 relative">
-              <Image
-                src="/visa-card-generic.png"
-                alt="Visa"
-                width={48}
-                height={32}
-                className="h-full w-full object-contain"
-              />
+            {/* iDEAL Logo */}
+            <div className="h-8 w-16 relative">
+              <img src="/ideal-logo-19535.svg" alt="iDEAL" className="h-full w-full object-contain" />
             </div>
 
             {/* Mastercard Logo */}
             <div className="h-8 w-12 relative">
-              <Image
-                src="/mastercard-logo-abstract.png"
-                alt="Mastercard"
-                width={48}
-                height={32}
-                className="h-full w-full object-contain"
-              />
+              <img src="/mastercard.svg" alt="Mastercard" className="h-full w-full object-contain" />
             </div>
 
-            {/* iDEAL Logo */}
-            <div className="h-8 w-16 relative">
-              <Image
-                src="/ideal-logo-1024.png"
-                alt="iDEAL"
-                width={64}
-                height={32}
-                className="h-full w-full object-contain"
-              />
-            </div>
-
-            {/* Bancontact Logo */}
-            <div className="h-8 w-16 relative">
-              <Image
-                src="/bancontact-payment.png"
-                alt="Bancontact"
-                width={64}
-                height={32}
-                className="h-full w-full object-contain"
-              />
+            {/* Maestro Logo */}
+            <div className="h-8 w-12 relative">
+              <img src="/maestro.svg" alt="Maestro" className="h-full w-full object-contain" />
             </div>
           </div>
         </div>

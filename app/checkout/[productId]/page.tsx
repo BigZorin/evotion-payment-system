@@ -89,6 +89,13 @@ export default async function CheckoutPage({ params }: { params: { productId: st
 
       if (product) {
         console.log(`Found product via alternative method:`, JSON.stringify(product, null, 2))
+        // Als we het product hebben gevonden, haal dan de volledige details op
+        try {
+          product = await getProductWithVariantsAndPrices(product.id.toString())
+        } catch (variantError) {
+          console.error(`Error fetching variants for product ${product.id}:`, variantError)
+          // We gebruiken het product zonder varianten als fallback
+        }
       } else {
         console.error(`Product with ID ${params.productId} not found in any products`)
       }
@@ -150,6 +157,19 @@ export default async function CheckoutPage({ params }: { params: { productId: st
     defaultPriceDisplay = formatCurrency(product.variants[0].prices[0].amount)
   }
 
+  // Bereid de productbeschrijving voor
+  const productDescription = product.description || "Geen beschrijving beschikbaar"
+
+  // Bereid de productkenmerken voor
+  const productFeatures = [
+    "Directe toegang tot het programma",
+    "Professionele begeleiding",
+    "Toegang tot exclusieve content",
+  ]
+
+  // Controleer of er varianten zijn
+  const hasVariants = product.variants && product.variants.length > 1
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
@@ -168,10 +188,16 @@ export default async function CheckoutPage({ params }: { params: { productId: st
 
             <h1 className="text-2xl font-bold text-gray-900 mb-4">{product.name}</h1>
 
-            {product.description && (
+            {productDescription && (
               <div className="mb-6">
                 <h2 className="text-lg font-medium text-gray-900 mb-2">Productbeschrijving</h2>
-                <p className="text-gray-600">{product.description}</p>
+                <div className="text-gray-600 prose prose-sm max-w-none">
+                  {productDescription.split("\n").map((paragraph, index) => (
+                    <p key={index} className="mb-2">
+                      {paragraph}
+                    </p>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -199,38 +225,62 @@ export default async function CheckoutPage({ params }: { params: { productId: st
             <div className="border-t border-gray-200 pt-6">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Wat krijg je?</h2>
               <ul className="space-y-2">
-                <li className="flex items-start">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>Directe toegang tot {product.name}</span>
-                </li>
-                <li className="flex items-start">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>Professionele begeleiding</span>
-                </li>
-                <li className="flex items-start">
-                  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>Toegang tot exclusieve content</span>
-                </li>
+                {productFeatures.map((feature, index) => (
+                  <li key={index} className="flex items-start">
+                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>{feature}</span>
+                  </li>
+                ))}
               </ul>
             </div>
+
+            {hasVariants && (
+              <div className="border-t border-gray-200 pt-6 mt-6">
+                <h2 className="text-lg font-medium text-gray-900 mb-4">Beschikbare varianten</h2>
+                <div className="space-y-2">
+                  {product.variants.map((variant: any) => {
+                    // Bepaal de prijs voor deze variant
+                    const variantPrice =
+                      variant.prices && variant.prices.length > 0
+                        ? formatCurrency(variant.prices[0].amount)
+                        : "Prijs niet beschikbaar"
+
+                    return (
+                      <Link
+                        key={variant.id}
+                        href={`/checkout/${product.id}/variant/${variant.id}`}
+                        className="block p-3 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h3 className="font-medium text-gray-900">{variant.name}</h3>
+                            {variant.description && <p className="text-sm text-gray-500">{variant.description}</p>}
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-gray-900">{variantPrice}</p>
+                            <span className="text-sm text-blue-600">Selecteer →</span>
+                          </div>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="mt-8">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Veilig betalen met</h2>
               <div className="flex space-x-4 items-center">
                 <div className="h-8 w-16 relative">
-                  <Image src="/ideal-payment.png" alt="iDEAL" fill style={{ objectFit: "contain" }} />
+                  <img src="/ideal-logo-19535.svg" alt="iDEAL" className="h-full w-full object-contain" />
                 </div>
                 <div className="h-8 w-16 relative">
-                  <Image src="/mastercard-logo-abstract.png" alt="Mastercard" fill style={{ objectFit: "contain" }} />
+                  <img src="/mastercard.svg" alt="Mastercard" className="h-full w-full object-contain" />
                 </div>
                 <div className="h-8 w-16 relative">
-                  <Image src="/visa-card-generic.png" alt="Visa" fill style={{ objectFit: "contain" }} />
+                  <img src="/maestro.svg" alt="Maestro" className="h-full w-full object-contain" />
                 </div>
               </div>
             </div>
