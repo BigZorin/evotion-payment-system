@@ -5,7 +5,7 @@ import { CardContent } from "@/components/ui/card"
 import { CardHeader } from "@/components/ui/card"
 import { Card } from "@/components/ui/card"
 import { useState, useEffect } from "react"
-import { Menu, X, Home, ShoppingBag, LinkIcon, Search, RefreshCw, RotateCcw } from "lucide-react"
+import { Menu, X, Home, ShoppingBag, LinkIcon, Search, RefreshCw, RotateCcw, AlertTriangle } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -53,6 +53,13 @@ export default function AdminDashboardClient({
   const [isMobile, setIsMobile] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [apiStatus, setApiStatus] = useState<{
+    clickfunnels: boolean
+    stripe: boolean
+  }>({
+    clickfunnels: true,
+    stripe: true,
+  })
 
   // Check if we're on mobile
   useEffect(() => {
@@ -87,10 +94,31 @@ export default function AdminDashboardClient({
         setRecentActivity(data.recentActivity || initialRecentActivity)
         setRecentEnrollments(data.recentEnrollments || initialRecentEnrollments)
         setCourses(data.courses || initialCourses)
-        setClickfunnelsProducts(data.clickfunnelsProducts || initialClickfunnelsProducts)
+
+        // Check if we got products from ClickFunnels
+        if (data.clickfunnelsProducts && data.clickfunnelsProducts.length > 0) {
+          setClickfunnelsProducts(data.clickfunnelsProducts)
+          setApiStatus((prev) => ({ ...prev, clickfunnels: true }))
+        } else {
+          console.warn("No ClickFunnels products received, using local products as fallback")
+          setClickfunnelsProducts(data.localProducts || initialLocalProducts)
+          setApiStatus((prev) => ({ ...prev, clickfunnels: false }))
+
+          // Show a toast notification
+          toast({
+            title: "ClickFunnels API niet beschikbaar",
+            description: "We gebruiken lokale productgegevens als fallback.",
+            variant: "destructive",
+            duration: 5000,
+          })
+        }
       } catch (err) {
         console.error("Error loading dashboard data:", err)
         setError("Er is een fout opgetreden bij het laden van de dashboard gegevens.")
+
+        // Use local products as fallback
+        setClickfunnelsProducts(initialLocalProducts || [])
+        setApiStatus((prev) => ({ ...prev, clickfunnels: false }))
       } finally {
         setIsLoading(false)
       }
@@ -125,7 +153,24 @@ export default function AdminDashboardClient({
       setRecentActivity(data.recentActivity)
       setRecentEnrollments(data.recentEnrollments)
       setCourses(data.courses)
-      setClickfunnelsProducts(data.clickfunnelsProducts)
+
+      // Check if we got products from ClickFunnels
+      if (data.clickfunnelsProducts && data.clickfunnelsProducts.length > 0) {
+        setClickfunnelsProducts(data.clickfunnelsProducts)
+        setApiStatus((prev) => ({ ...prev, clickfunnels: true }))
+      } else {
+        console.warn("No ClickFunnels products received during refresh, using local products as fallback")
+        setClickfunnelsProducts(data.localProducts || initialLocalProducts)
+        setApiStatus((prev) => ({ ...prev, clickfunnels: false }))
+
+        // Show a toast notification
+        toast({
+          title: "ClickFunnels API niet beschikbaar",
+          description: "We gebruiken lokale productgegevens als fallback.",
+          variant: "destructive",
+          duration: 5000,
+        })
+      }
 
       // Toon succes toast
       toast({
@@ -226,6 +271,14 @@ export default function AdminDashboardClient({
             </span>
           </div>
 
+          {/* API Status Indicator */}
+          {!apiStatus.clickfunnels && (
+            <div className="hidden md:flex items-center text-amber-600 bg-amber-50 px-3 py-1 rounded-full text-xs">
+              <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+              ClickFunnels API niet beschikbaar
+            </div>
+          )}
+
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-6">
             {navItems.map((item) => (
@@ -265,6 +318,14 @@ export default function AdminDashboardClient({
             {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
         </div>
+
+        {/* API Status Indicator (Mobile) */}
+        {!apiStatus.clickfunnels && (
+          <div className="md:hidden flex items-center justify-center text-amber-600 bg-amber-50 px-3 py-1 text-xs">
+            <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+            ClickFunnels API niet beschikbaar
+          </div>
+        )}
 
         {/* Mobile Navigation */}
         {isMobileMenuOpen && (
@@ -337,6 +398,20 @@ export default function AdminDashboardClient({
           <Alert variant="destructive">
             <AlertTitle>Fout</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+      {/* API Status Warning */}
+      {!apiStatus.clickfunnels && (
+        <div className="container mx-auto px-4 py-4">
+          <Alert variant="warning" className="bg-amber-50 text-amber-800 border-amber-200">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>ClickFunnels API niet beschikbaar</AlertTitle>
+            <AlertDescription>
+              We kunnen momenteel geen verbinding maken met de ClickFunnels API. We gebruiken lokale productgegevens als
+              fallback. Probeer later opnieuw of neem contact op met de beheerder.
+            </AlertDescription>
           </Alert>
         </div>
       )}
