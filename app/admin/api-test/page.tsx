@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { Suspense } from "react"
 import {
   CLICKFUNNELS_API_TOKEN,
@@ -48,7 +50,7 @@ async function ApiTest() {
           Authorization: `Bearer ${apiToken}`,
           Accept: "application/json",
         },
-        cache: "no-store",
+        next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
       })
 
       if (!collectionsResponse.ok) {
@@ -72,7 +74,7 @@ async function ApiTest() {
           Authorization: `Bearer ${apiToken}`,
           Accept: "application/json",
         },
-        cache: "no-store",
+        next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
       })
 
       if (!productsResponse.ok) {
@@ -96,7 +98,7 @@ async function ApiTest() {
           Authorization: `Bearer ${apiToken}`,
           Accept: "application/json",
         },
-        cache: "no-store",
+        next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
       })
 
       if (!coursesResponse.ok) {
@@ -119,7 +121,7 @@ async function ApiTest() {
             Authorization: `Bearer ${apiToken}`,
             Accept: "application/json",
           },
-          cache: "no-store",
+          next: { revalidate: 60 }, // Cache voor 60 seconden in plaats van no-store
         })
 
         if (!membershipsResponse.ok) {
