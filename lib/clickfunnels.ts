@@ -4,7 +4,7 @@ import { fetchWithRateLimiting } from "./api-helpers"
 import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN } from "./config"
 import { apiCache } from "./cache"
 import type { ClickFunnelsContact } from "./types"
-import { isValidVariant } from "./clickfunnels-helpers"
+import { isValidVariant as isValidVariantHelper } from "./clickfunnels-helpers"
 
 // Deze waarden moeten worden ingesteld als omgevingsvariabelen
 const CLICKFUNNELS_SUBDOMAIN_OLD = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
@@ -233,10 +233,10 @@ export async function getProductWithVariantsAndPrices(productId: string): Promis
     console.log(`Total prices fetched for product ID ${productId}: ${allPrices.length}`)
 
     // Import helper functions
-    const { isValidVariant } = await import("./clickfunnels-helpers")
+    //const { isValidVariant } = await import("./clickfunnels-helpers")
 
     // Filter out invalid variants (archived, deleted, or without valid prices)
-    const validVariants = allVariants.filter(isValidVariant)
+    const validVariants = allVariants.filter(isValidVariantHelper)
     console.log(`Found ${validVariants.length} valid variants out of ${allVariants.length} total variants`)
 
     // Return the product with valid variants and prices
@@ -291,7 +291,7 @@ export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[
           }
 
           // Filter out invalid variants
-          const validVariants = allVariants.filter(isValidVariant)
+          const validVariants = allVariants.filter(isValidVariantHelper)
 
           return {
             ...product,
@@ -500,63 +500,4 @@ export async function getContactByEmail(
   }
 }
 
-export interface ClickfunnelsProduct {
-  id: number
-  public_id: string | null
-  name: string
-  description: string
-  current_path: string | null
-  archived: boolean | null
-  visible_in_store: boolean | null
-  visible_in_customer_center: boolean | null
-  image_id: string | null
-  seo_title: string | null
-  seo_description: string | null
-  default_variant_id: number
-  created_at: string | null
-  updated_at: string | null
-  variant_properties: Array<{
-    id: number
-    name: string
-  }> | null
-  price_ids: number[] | null
-  variant_ids: string[]
-  // Toegevoegde velden voor prijsinformatie
-  variant?: ClickfunnelsVariant
-  variants?: ClickfunnelsVariant[]
-  prices?: ClickfunnelsPrice[]
-  defaultPrice?: ClickfunnelsPrice
-}
-
-export interface ClickfunnelsVariant {
-  id: number
-  public_id?: string
-  product_id?: number
-  name: string
-  description: string | null
-  sku: string | null
-  price_ids: string[] | null
-  prices?: ClickfunnelsPrice[]
-  archived?: boolean
-  deleted?: boolean
-  properties_values?: {
-    property_id: number
-    value: string
-  }[]
-  // ... other properties
-}
-
-export interface ClickfunnelsPrice {
-  id: number
-  public_id?: string
-  variant_id?: number
-  amount: number
-  currency: string
-  recurring: boolean
-  recurring_interval?: string
-  recurring_interval_count?: number
-  archived?: boolean
-  deleted?: boolean
-  // ... other properties
-}
-\"
+export { isValidVariantHelper as isValidVariant }

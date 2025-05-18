@@ -1,4 +1,3 @@
-// Helper functies voor ClickFunnels die geen Server Actions zijn
 import type { ClickfunnelsVariant, ClickfunnelsPrice } from "./clickfunnels"
 
 /**
