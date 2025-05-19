@@ -938,7 +938,7 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
 }
 
 // Vervang de huidige formatCurrency functie met deze verbeterde versie
-function formatCurrency(amount: number | string | undefined | null, currency = "EUR"): string {
+export async function formatCurrency(amount: number | string | undefined | null, currency = "EUR"): Promise<string> {
   if (amount === undefined || amount === null) {
     return "Prijs niet beschikbaar"
   }
@@ -960,11 +960,9 @@ function formatCurrency(amount: number | string | undefined | null, currency = "
 
   // Stripe geeft bedragen in centen, dus we moeten delen door 100
   // ClickFunnels API geeft prijzen als decimale getallen (bijv. "257.00" voor €257)
-  if (numericAmount > 0 && numericAmount < 1) {
-    // Als het bedrag tussen 0 en 1 ligt, is het waarschijnlijk al in euro's (bijv. 0.99 voor €0,99)
-    // Doe niets
-  } else if (numericAmount >= 1000) {
-    // Als het bedrag 1000 of hoger is, is het waarschijnlijk in centen (bijv. 1000 voor €10,00)
+  // We delen alleen door 100 als het een Stripe bedrag is (meestal boven 1000)
+  if (numericAmount > 1000 && currency === "EUR" && String(numericAmount).length > 5) {
+    // Als het bedrag 1000 of hoger is en een Stripe bedrag lijkt te zijn (bijv. 25700 voor €257,00)
     numericAmount = numericAmount / 100
   }
 
@@ -977,7 +975,7 @@ function formatCurrency(amount: number | string | undefined | null, currency = "
 }
 
 // Helper functie om datums te formatteren
-function formatDate(date: Date): string {
+export async function formatDate(date: Date): Promise<string> {
   const now = new Date()
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
