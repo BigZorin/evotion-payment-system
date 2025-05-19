@@ -619,7 +619,7 @@ export async function isValidVariant(variant: any) {
 
   // Een variant moet ten minste één geldige prijs hebben
   const hasValidPrices =
-    variant.prices && variant.prices.some((price: any) => price && !price.archived && price.visible)
+    variant.prices && variant.prices.some((price: any) => price && !price.archived && !price.deleted)
 
   return hasValidPrices
 }
