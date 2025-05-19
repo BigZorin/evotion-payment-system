@@ -599,7 +599,7 @@ export async function getContactByEmail(
 }
 
 // Voeg deze functie toe of update de bestaande functie om te controleren of een variant geldig is
-export function isValidVariant(variant: any) {
+export async function isValidVariant(variant: any) {
   if (!variant) return false
 
   // Een variant is geldig als hij niet gearchiveerd is
