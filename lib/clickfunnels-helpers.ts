@@ -35,8 +35,13 @@ export function formatCurrency(amount: string | number | undefined | null, curre
     return "Ongeldige prijs"
   }
 
+  // Stripe geeft bedragen in centen, dus we moeten delen door 100
   // ClickFunnels API geeft prijzen als decimale getallen (bijv. "257.00" voor €257)
-  // We hoeven dus NIET te delen door 100
+  // We delen alleen door 100 als het een Stripe bedrag is (meestal boven 1000)
+  if (numericAmount > 1000 && currency === "EUR" && String(numericAmount).length > 5) {
+    // Als het bedrag 1000 of hoger is en een Stripe bedrag lijkt te zijn (bijv. 25700 voor €257,00)
+    numericAmount = numericAmount / 100
+  }
 
   return new Intl.NumberFormat("nl-NL", {
     style: "currency",
@@ -128,4 +133,24 @@ export function isValidVariant(variant: any) {
     variant.prices && variant.prices.some((price: any) => price && !price.archived && price.visible)
 
   return hasValidPrices
+}
+
+/**
+ * Formatteert een datum naar een leesbare notatie
+ *
+ * @param date De datum die geformatteerd moet worden
+ * @returns Geformatteerde datum als string
+ */
+export function formatDate(date: Date): string {
+  const now = new Date()
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+
+  if (date.toDateString() === now.toDateString()) {
+    return `Vandaag, ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`
+  } else if (date.toDateString() === yesterday.toDateString()) {
+    return `Gisteren, ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`
+  } else {
+    return `${date.getDate()} ${["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"][date.getMonth()]}, ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`
+  }
 }

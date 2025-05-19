@@ -9,6 +9,7 @@ import {
   CLICKFUNNELS_WORKSPACE_ID,
   CLICKFUNNELS_NUMERIC_WORKSPACE_ID,
 } from "./config"
+import { formatCurrency, formatDate } from "./clickfunnels-helpers"
 
 // Type definities voor statistieken
 export interface DashboardStats {
@@ -713,8 +714,8 @@ export async function getRecentActivity(limit = 10, bypassCache = false): Promis
           }
 
           // Voeg betaling toe aan activiteiten
-          const formattedAmount = await formatCurrency(payment.amount)
-          const formattedDate = await formatDate(new Date(payment.created * 1000))
+          const formattedAmount = formatCurrency(payment.amount)
+          const formattedDate = formatDate(new Date(payment.created * 1000))
 
           activities.push({
             id: payment.id,
@@ -768,8 +769,8 @@ export async function getRecentActivity(limit = 10, bypassCache = false): Promis
           }
         } else if (payment.status === "requires_payment_method" || payment.status === "canceled") {
           // Voeg mislukte betalingen toe
-          const formattedAmount = await formatCurrency(payment.amount)
-          const formattedDate = await formatDate(new Date(payment.created * 1000))
+          const formattedAmount = formatCurrency(payment.amount)
+          const formattedDate = formatDate(new Date(payment.created * 1000))
 
           activities.push({
             id: payment.id,
@@ -865,7 +866,7 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
 
           try {
             const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
-            const formattedDate = await formatDate(new Date(payment.created * 1000))
+            const formattedDate = formatDate(new Date(payment.created * 1000))
 
             for (const courseId of courseIds) {
               // Bepaal cursusnaam
@@ -895,7 +896,7 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
             }
           } catch (e) {
             // Als het geen geldige JSON is, voeg dan één enrollment toe
-            const formattedDate = await formatDate(new Date(payment.created * 1000))
+            const formattedDate = formatDate(new Date(payment.created * 1000))
 
             enrollments.push({
               id: `${payment.id}_enrollment`,
@@ -943,57 +944,5 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
         status: "error",
       },
     ]
-  }
-}
-
-// Vervang de huidige formatCurrency functie met deze verbeterde versie
-export async function formatCurrency(amount: number | string | undefined | null, currency = "EUR"): Promise<string> {
-  if (amount === undefined || amount === null) {
-    return "Prijs niet beschikbaar"
-  }
-
-  // Converteer naar nummer als het een string is
-  let numericAmount: number
-
-  if (typeof amount === "string") {
-    // Vervang komma's door punten voor consistente parsing
-    const normalizedAmount = amount.replace(",", ".")
-    numericAmount = Number.parseFloat(normalizedAmount)
-  } else {
-    numericAmount = amount
-  }
-
-  if (isNaN(numericAmount)) {
-    return "Ongeldige prijs"
-  }
-
-  // Stripe geeft bedragen in centen, dus we moeten delen door 100
-  // ClickFunnels API geeft prijzen als decimale getallen (bijv. "257.00" voor €257)
-  // We delen alleen door 100 als het een Stripe bedrag is (meestal boven 1000)
-  if (numericAmount > 1000 && currency === "EUR" && String(numericAmount).length > 5) {
-    // Als het bedrag 1000 of hoger is en een Stripe bedrag lijkt te zijn (bijv. 25700 voor €257,00)
-    numericAmount = numericAmount / 100
-  }
-
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numericAmount)
-}
-
-// Helper functie om datums te formatteren
-export async function formatDate(date: Date): Promise<string> {
-  const now = new Date()
-  const yesterday = new Date(now)
-  yesterday.setDate(yesterday.getDate() - 1)
-
-  if (date.toDateString() === now.toDateString()) {
-    return `Vandaag, ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`
-  } else if (date.toDateString() === yesterday.toDateString()) {
-    return `Gisteren, ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`
-  } else {
-    return `${date.getDate()} ${["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"][date.getMonth()]}, ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`
   }
 }
