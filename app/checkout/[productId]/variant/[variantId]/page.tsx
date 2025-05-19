@@ -1,12 +1,7 @@
-import { Suspense } from "react"
+import { notFound } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
-import {
-  getClickFunnelsProduct,
-  getProductWithVariantsAndPrices,
-  getClickfunnelsVariant,
-  isValidVariant,
-} from "@/lib/clickfunnels"
+import { getClickFunnelsProduct, getClickfunnelsVariant, getProductWithVariantsAndPrices } from "@/lib/clickfunnels"
 import { ClickFunnelsCheckoutForm } from "@/components/clickfunnels-checkout-form"
 import { formatCurrency } from "@/lib/utils"
 
@@ -68,25 +63,26 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
     if (!selectedVariant) {
       selectedVariant = await getClickfunnelsVariant(params.variantId)
       console.log(`Variant found directly:`, JSON.stringify(selectedVariant, null, 2))
+    }
 
-      // Controleer of de direct opgehaalde variant geldig is
-      if (!isValidVariant(selectedVariant)) {
-        console.log(`Directly fetched variant ${params.variantId} is not valid`)
-        selectedVariant = null
-      }
-    } else {
-      // Controleer of de variant uit het product geldig is
-      if (!isValidVariant(selectedVariant)) {
-        console.log(`Variant ${params.variantId} from product is not valid`)
-        selectedVariant = null
-      }
+    // Als de variant nog steeds niet is gevonden, toon dan een 404 pagina
+    if (!selectedVariant) {
+      console.log(`Variant ${params.variantId} not found`)
+      return notFound()
     }
 
     // Bepaal de prijs om weer te geven
     if (selectedVariant?.prices && selectedVariant.prices.length > 0) {
-      variantPrice = selectedVariant.prices[0]
-      variantPriceDisplay = formatCurrency(variantPrice.amount)
-      console.log(`Using variant price: ${variantPriceDisplay} from variant prices`)
+      // Filter op geldige prijzen
+      const validPrices = selectedVariant.prices.filter(isValidPrice)
+
+      if (validPrices.length > 0) {
+        variantPrice = validPrices[0]
+        variantPriceDisplay = formatCurrency(variantPrice.amount)
+        console.log(`Using variant price: ${variantPriceDisplay} from variant prices`)
+      } else {
+        console.log(`No valid prices found in variant prices array`)
+      }
     } else if (selectedVariant?.price_ids && selectedVariant.price_ids.length > 0) {
       // Als de variant wel price_ids heeft maar geen prices array, haal dan de prijzen op
       try {
@@ -102,44 +98,27 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
           },
         ).then((res) => res.json())
 
-        if (price && price.amount) {
+        if (price && price.amount && !price.archived && price.visible) {
           variantPrice = price
           variantPriceDisplay = formatCurrency(price.amount)
           console.log(`Using fetched price: ${variantPriceDisplay} from price_id ${priceId}`)
+        } else {
+          console.log(`Fetched price is not valid: ${JSON.stringify(price)}`)
         }
       } catch (error) {
         console.error(`Error fetching price for variant ${selectedVariant.id}:`, error)
       }
+    } else {
+      console.log(`Variant ${selectedVariant?.id} has no prices or price_ids`)
     }
   } catch (error) {
     console.error(`Error fetching product or variant:`, error)
+    return notFound()
   }
 
   // Als het product of de variant niet is gevonden, of als de variant niet geldig is, toon dan een foutpagina
   if (!product || !selectedVariant) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
-          <Image
-            src="/images/evotion-logo-black.png"
-            alt="Evotion Coaching"
-            width={180}
-            height={50}
-            className="h-10 w-auto mx-auto mb-6"
-          />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Product of variant niet gevonden</h1>
-          <p className="text-gray-600 mb-6">
-            Het product of de variant die je probeert te bekijken bestaat niet of is niet meer beschikbaar.
-          </p>
-          <Link
-            href="/"
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Terug naar de homepage
-          </Link>
-        </div>
-      </div>
-    )
+    return notFound()
   }
 
   // Bepaal of het een abonnement is
@@ -186,8 +165,6 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Vervang het gedeelte waar we de productinformatie weergeven met deze verbeterde versie: */}
-
           {/* Productinformatie */}
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center justify-center mb-6">
@@ -278,9 +255,7 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Vul je gegevens in</h2>
 
-            <Suspense fallback={<div className="animate-pulse h-96 bg-gray-100 rounded-md"></div>}>
-              <ClickFunnelsCheckoutForm product={productWithSelectedVariant} isSubscription={isSubscription} />
-            </Suspense>
+            <ClickFunnelsCheckoutForm product={productWithSelectedVariant} isSubscription={isSubscription} />
 
             <div className="mt-6 text-sm text-gray-500">
               <p>
@@ -300,4 +275,8 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
       </div>
     </div>
   )
+}
+
+function isValidPrice(price: any) {
+  return price && !price.archived && price.visible
 }

@@ -54,14 +54,29 @@ export interface Course {
   current_path: string | null
 }
 
+// Betaaltype enum voor betere type veiligheid
+export enum PaymentType {
+  OneTime = "one_time",
+  Subscription = "subscription",
+  PaymentPlan = "payment_plan",
+}
+
+// Voeg extra velden toe aan de ClickFunnelsPrice interface voor betalingsplannen
 export interface ClickFunnelsPrice {
   id: number
   amount: number
   currency: string
+  payment_type: PaymentType | string // Gebruik het payment_type veld om het type betaling te bepalen
   recurring: boolean
-  interval?: string
-  interval_count?: number
+  recurring_interval?: string
+  recurring_interval_count?: number
   name?: string
+  price_type?: string
+  archived?: boolean
+  // Velden voor betalingsplannen
+  installments_count?: number
+  installment_amount?: number
+  installment_period?: string
 }
 
 export interface ClickFunnelsVariant {
@@ -326,6 +341,10 @@ export async function getVariantPrices(variantId: string | number) {
     }
 
     const prices = await response.json()
+
+    // Log de volledige prijsdata om te zien of payment_type aanwezig is
+    console.log(`Variant ${variantId} prices:`, JSON.stringify(prices, null, 2))
+
     return prices
   } catch (error) {
     console.error("Error fetching variant prices:", error)

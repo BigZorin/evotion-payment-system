@@ -92,3 +92,19 @@ export function getProductCourseMapping(): Record<string, { productName: string;
 export async function getProducts(): Promise<Product[]> {
   return products
 }
+
+// Voeg deze functie toe of update deze als hij al bestaat
+export function getActivePrices(product: any) {
+  if (!product || !product.prices) return []
+
+  // Controleer of archived en deleted expliciet true zijn
+  return product.prices.filter((p: any) => p.archived !== true && p.deleted !== true)
+}
+
+// Voeg deze functie toe of update deze als hij al bestaat
+export function getActiveVariants(product: any) {
+  if (!product || !product.variants) return []
+
+  // Controleer of archived en deleted expliciet true zijn
+  return product.variants.filter((v: any) => v.archived !== true && v.deleted !== true)
+}

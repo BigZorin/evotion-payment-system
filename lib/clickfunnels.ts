@@ -16,6 +16,13 @@ const CLICKFUNNELS_ACCOUNT_ID = process.env.CLICKFUNNELS_ACCOUNT_ID || ""
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 1000
 
+// Betaaltype enum voor betere type veiligheid
+export enum PaymentType {
+  OneTime = "one_time",
+  Subscription = "subscription",
+  PaymentPlan = "payment_plan",
+}
+
 export interface ClickfunnelsProduct {
   id: number
   public_id: string | null
@@ -62,17 +69,23 @@ export interface ClickfunnelsVariant {
   // ... other properties
 }
 
+// Voeg extra velden toe aan de ClickfunnelsPrice interface voor betalingsplannen
 export interface ClickfunnelsPrice {
   id: number
   public_id?: string
   variant_id?: number
   amount: number
   currency: string
+  payment_type: PaymentType | string // Gebruik het payment_type veld om het type betaling te bepalen
   recurring: boolean
   recurring_interval?: string
   recurring_interval_count?: number
   archived?: boolean
   deleted?: boolean
+  // Velden voor betalingsplannen
+  installments_count?: number
+  installment_amount?: number
+  installment_period?: string
   // ... other properties
 }
 
@@ -130,34 +143,91 @@ export async function getClickFunnelsProduct(id: string): Promise<ClickfunnelsPr
   }
 }
 
-// Functie om een variant op te halen uit ClickFunnels
-export async function getClickfunnelsVariant(id: string): Promise<ClickfunnelsVariant> {
+// Voeg deze functie toe of update de bestaande functie om de variant op te halen
+
+export async function getClickfunnelsVariant(variantId: string) {
+  console.log(`Fetching variant with ID: ${variantId}`)
+
   try {
-    if (!CLICKFUNNELS_API_TOKEN || !CLICKFUNNELS_SUBDOMAIN) {
-      throw new Error("ClickFunnels API token of subdomain ontbreekt")
+    // Controleer eerst of het een public_id is (string met letters en cijfers)
+    // of een numerieke ID (alleen cijfers)
+    const isPublicId = /[a-zA-Z]/.test(variantId)
+
+    let endpoint
+    if (isPublicId) {
+      endpoint = `https://${process.env.CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/variants/${variantId}`
+    } else {
+      // Als het een numerieke ID is, gebruik dan de numerieke endpoint
+      endpoint = `https://${process.env.CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/variants/${variantId}`
     }
 
-    // Gebruik fetchWithRateLimiting voor betere foutafhandeling en rate limiting
-    const data = await fetchWithRateLimiting<ClickfunnelsVariant>(
-      `https://${CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/variants/${id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${CLICKFUNNELS_API_TOKEN}`,
-          Accept: "application/json",
-        },
-      },
-      `clickfunnels_variant_${id}`, // Cache key
-      5 * 60 * 1000, // 5 minuten cache TTL
-    )
+    console.log(`Fetching variant from endpoint: ${endpoint}`)
 
-    return data
+    const response = await fetch(endpoint, {
+      headers: {
+        Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    })
+
+    if (!response.ok) {
+      console.error(`Error fetching variant: ${response.status} ${response.statusText}`)
+      return null
+    }
+
+    const variant = await response.json()
+
+    // Haal de prijzen op voor de variant als ze nog niet zijn opgehaald
+    if (
+      variant &&
+      (!variant.prices || variant.prices.length === 0) &&
+      variant.price_ids &&
+      variant.price_ids.length > 0
+    ) {
+      console.log(`Fetching prices for variant ${variant.id}`)
+
+      const prices = await Promise.all(
+        variant.price_ids.map(async (priceId: string) => {
+          try {
+            const priceResponse = await fetch(
+              `https://${process.env.CLICKFUNNELS_SUBDOMAIN}.myclickfunnels.com/api/v2/products/prices/${priceId}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.CLICKFUNNELS_API_TOKEN}`,
+                  Accept: "application/json",
+                },
+                cache: "no-store",
+              },
+            )
+
+            if (!priceResponse.ok) {
+              console.error(`Error fetching price ${priceId}: ${priceResponse.status} ${priceResponse.statusText}`)
+              return null
+            }
+
+            return await priceResponse.json()
+          } catch (error) {
+            console.error(`Error fetching price ${priceId}:`, error)
+            return null
+          }
+        }),
+      )
+
+      // Filter out null values and add prices to variant
+      variant.prices = prices.filter(Boolean)
+    }
+
+    return variant
   } catch (error) {
-    console.error(`Error fetching ClickFunnels variant ${id}:`, error)
-    throw error
+    console.error(`Error in getClickfunnelsVariant:`, error)
+    return null
   }
 }
 
-// Functie om een prijs op te halen uit ClickFunnels
+// Verbeter de getClickfunnelsPrice functie om payment_type correct te verwerken
+// en zorg ervoor dat archived en deleted velden correct worden doorgegeven
+
 export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPrice> {
   try {
     console.log(`Fetching ClickFunnels price with ID: ${id}`)
@@ -179,8 +249,39 @@ export async function getClickfunnelsPrice(id: string): Promise<ClickfunnelsPric
       5 * 60 * 1000, // 5 minuten cache TTL
     )
 
+    // Log de volledige prijs data om te zien of payment_type aanwezig is
     console.log(`Successfully fetched price with ID ${id}:`, JSON.stringify(data, null, 2))
-    return data
+
+    // Bepaal het betaaltype en recurring status
+    let paymentType = data.payment_type || PaymentType.OneTime
+    let isRecurring = false
+
+    // Als payment_type niet expliciet is ingesteld, probeer het af te leiden
+    if (!data.payment_type) {
+      if (data.recurring_interval) {
+        paymentType = PaymentType.Subscription
+        isRecurring = true
+      } else if (data.installments_count && data.installments_count > 1) {
+        paymentType = PaymentType.PaymentPlan
+      }
+    } else {
+      // Als payment_type wel is ingesteld, gebruik dat om recurring te bepalen
+      isRecurring = paymentType === PaymentType.Subscription
+    }
+
+    // Zorg ervoor dat we alle prijsinformatie correct doorgeven
+    return {
+      ...data,
+      payment_type: paymentType,
+      recurring: isRecurring,
+      // Zorg ervoor dat betalingsplan velden aanwezig zijn
+      installments_count: data.installments_count || 0,
+      installment_amount: data.installment_amount || 0,
+      installment_period: data.installment_period || null,
+      // Zorg ervoor dat archived en deleted velden correct worden doorgegeven
+      archived: data.archived === true, // Zorg ervoor dat dit een boolean is
+      deleted: data.deleted === true, // Zorg ervoor dat dit een boolean is
+    }
   } catch (error) {
     console.error(`Error fetching ClickFunnels price ${id}:`, error)
     throw error
@@ -497,4 +598,16 @@ export async function getContactByEmail(
   }
 }
 
-export { isValidVariantHelper as isValidVariant }
+// Voeg deze functie toe of update de bestaande functie om te controleren of een variant geldig is
+export function isValidVariant(variant: any) {
+  if (!variant) return false
+
+  // Een variant is geldig als hij niet gearchiveerd is
+  if (variant.archived) return false
+
+  // Een variant moet ten minste één geldige prijs hebben
+  const hasValidPrices =
+    variant.prices && variant.prices.some((price: any) => price && !price.archived && price.visible)
+
+  return hasValidPrices
+}

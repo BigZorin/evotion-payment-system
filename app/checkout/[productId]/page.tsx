@@ -6,7 +6,7 @@ import { formatCurrency } from "@/lib/utils"
 // Voeg revalidatie toe om ervoor te zorgen dat prijsupdates snel zichtbaar zijn
 export const revalidate = 60 // Revalideer elke 60 seconden
 
-// Vervang de bestaande generateMetadata functie met deze verbeterde versie
+// Metadata voor de pagina
 export async function generateMetadata({ params }: { params: { productId: string } }) {
   try {
     // Haal het product op met alle varianten en prijzen
@@ -36,7 +36,6 @@ export async function generateMetadata({ params }: { params: { productId: string
   }
 }
 
-// Vervang de bestaande checkout pagina met deze verbeterde versie
 export default async function CheckoutPage({ params }: { params: { productId: string } }) {
   console.log(`Checkout page requested for product ID: ${params.productId}`)
 
@@ -107,9 +106,6 @@ export default async function CheckoutPage({ params }: { params: { productId: st
     )
   }
 
-  // Bereid de productbeschrijving voor
-  const productDescription = product.description || "Geen beschrijving beschikbaar"
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
       <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
@@ -135,71 +131,69 @@ export default async function CheckoutPage({ params }: { params: { productId: st
           </div>
 
           <h1 className="text-3xl font-bold text-gray-900 mb-4 text-center">{product.name}</h1>
-
-          {productDescription && (
-            <div className="mb-8 max-w-3xl mx-auto">
-              <div className="text-gray-700 prose prose-lg max-w-none">
-                {productDescription.split("\n").map((paragraph, index) => (
-                  <p key={index} className="mb-3">
-                    {paragraph}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">Kies je optie</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {validVariants.map((variant) => {
-            // Bepaal de prijs om weer te geven
-            let variantPrice = null
-            let variantPriceDisplay = "Prijs niet beschikbaar"
-            let isSubscription = false
+          {validVariants
+            .map((variant) => {
+              // Bepaal de prijs om weer te geven - focus op betalingsplannen indien beschikbaar
+              const paymentPlanPrices =
+                variant.prices?.filter(
+                  (price) => price.payment_type === "payment_plan" && price.visible === true && price.archived !== true,
+                ) || []
 
-            if (variant.prices && variant.prices.length > 0) {
-              variantPrice = variant.prices[0]
-              variantPriceDisplay = formatCurrency(variantPrice.amount)
-              isSubscription = variantPrice.recurring === true
-            }
+              // Als er betalingsplannen zijn, gebruik die, anders gebruik standaard prijzen
+              const visiblePrices =
+                paymentPlanPrices.length > 0
+                  ? paymentPlanPrices
+                  : variant.prices?.filter((price) => price.visible === true && price.archived !== true) || []
 
-            return (
-              <Link
-                key={variant.id}
-                href={`/checkout/${params.productId}/variant/${variant.public_id || variant.id}`}
-                className="bg-white p-6 rounded-xl shadow-md border border-gray-100 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col h-full"
-              >
-                <div className="mb-3">
-                  <span className="inline-block bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
-                    {variant.name || "Optie"}
-                  </span>
-                </div>
+              // Als er geen zichtbare prijzen zijn, sla deze variant over
+              if (visiblePrices.length === 0) return null
 
-                <div className="mb-4">
-                  <div className="text-2xl font-bold text-gray-900">{variantPriceDisplay}</div>
-                  {isSubscription && variantPrice?.recurring && (
-                    <div className="text-sm text-gray-500 mt-1">
-                      / {variantPrice.recurring_interval || "maand"}
-                      {variantPrice.recurring_interval_count && variantPrice.recurring_interval_count > 1
-                        ? ` (elke ${variantPrice.recurring_interval_count} ${
-                            variantPrice.recurring_interval || "maanden"
-                          })`
-                        : ""}
-                    </div>
-                  )}
-                </div>
+              // Gebruik de eerste prijs
+              const variantPrice = visiblePrices[0]
+              const variantPriceDisplay = formatCurrency(variantPrice.amount)
 
-                {variant.description && <div className="text-gray-600 mb-6 flex-grow">{variant.description}</div>}
+              // Bepaal de variant ID voor de link
+              const variantId = variant.public_id || variant.id
 
-                <div className="mt-auto">
-                  <span className="inline-flex items-center justify-center w-full px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200">
-                    Selecteer deze optie
-                  </span>
-                </div>
-              </Link>
-            )
-          })}
+              // Debug logging
+              console.log(`Variant ${variant.name} (ID: ${variantId}):`, {
+                prices: visiblePrices.length,
+                firstPrice: variantPrice,
+                display: variantPriceDisplay,
+              })
+
+              return (
+                <Link
+                  key={variant.id}
+                  href={`/checkout/${params.productId}/variant/${variantId}`}
+                  className="bg-white p-6 rounded-xl shadow-md border border-gray-100 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col h-full"
+                >
+                  <div className="mb-3">
+                    <span className="inline-block bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
+                      {variant.name || "Optie"}
+                    </span>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="text-2xl font-bold text-gray-900">{variantPriceDisplay}</div>
+                  </div>
+
+                  {variant.description && <div className="text-gray-600 mb-6 flex-grow">{variant.description}</div>}
+
+                  <div className="mt-auto">
+                    <span className="inline-flex items-center justify-center w-full px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200">
+                      Selecteer deze optie
+                    </span>
+                  </div>
+                </Link>
+              )
+            })
+            .filter(Boolean)}
         </div>
 
         <div className="mt-16 text-center">

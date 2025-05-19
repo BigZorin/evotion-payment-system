@@ -1,695 +1,290 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import type React from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import * as z from "zod"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { loadStripe } from "@stripe/stripe-js"
-import { formatCurrency } from "@/lib/utils"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertCircle } from "lucide-react"
 
-// Verbeterd formulier schema
-const formSchema = z.object({
-  customerEmail: z.string().email({ message: "Voer een geldig e-mailadres in" }),
-  customerFirstName: z.string().min(1, { message: "Voornaam is verplicht" }),
-  customerLastName: z.string().min(1, { message: "Achternaam is verplicht" }),
-  customerPhone: z.string().optional(),
-  customerBirthDate: z.string().optional(),
-  isCompany: z.boolean().default(false),
-  companyDetails: z.preprocess(
-    // Als isCompany false is, maak companyDetails undefined
-    (val, ctx) => {
-      const isCompany = ctx.parent?.isCompany
-      if (!isCompany) return undefined
-      return val
-    },
-    z
-      .object({
-        name: z.string().min(1, { message: "Bedrijfsnaam is verplicht" }),
-        vatNumber: z.string().optional(),
-        address: z.string().optional(),
-        postalCode: z.string().optional(),
-        city: z.string().optional(),
-      })
-      .optional(),
-  ),
-  acceptTerms: z.boolean().refine((val) => val === true, {
-    message: "Je moet akkoord gaan met de algemene voorwaarden",
-  }),
-})
-
-type FormValues = z.infer<typeof formSchema>
+// Initialize Stripe
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 interface CheckoutFormProps {
   product: any
   isSubscription?: boolean
 }
 
-export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: CheckoutFormProps) {
+export function ClickFunnelsCheckoutForm({ product, isSubscription }: CheckoutFormProps) {
   const router = useRouter()
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isCompany, setIsCompany] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [stripeError, setStripeError] = useState<string | null>(null)
-  const [stripeLoaded, setStripeLoaded] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<any>(null)
-  const [bypassValidation, setBypassValidation] = useState(false)
-
-  // Haal de Stripe publishable key op uit de environment variables
-  const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-
-  // Controleer of Stripe correct is geconfigureerd
-  useEffect(() => {
-    const checkStripeConfig = async () => {
-      try {
-        console.log("Checking Stripe configuration...")
-
-        if (!stripePublishableKey) {
-          console.error("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is niet geconfigureerd")
-          setStripeError("Stripe is niet correct geconfigureerd. Neem contact op met de beheerder.")
-          return false
-        }
-
-        console.log("Stripe publishable key is configured:", stripePublishableKey.substring(0, 8) + "...")
-
-        // Probeer Stripe te laden
-        const stripePromise = loadStripe(stripePublishableKey)
-        const stripe = await stripePromise
-
-        if (!stripe) {
-          console.error("Stripe kon niet worden geladen")
-          setStripeError("Stripe kon niet worden geladen. Controleer je internetverbinding.")
-          return false
-        }
-
-        console.log("Stripe loaded successfully")
-        setStripeLoaded(true)
-        return true
-      } catch (error) {
-        console.error("Fout bij het laden van Stripe:", error)
-        setStripeError("Er is een fout opgetreden bij het laden van Stripe.")
-        return false
-      }
-    }
-
-    checkStripeConfig()
-  }, [stripePublishableKey])
-
-  // Formulier initialisatie
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      customerEmail: "",
-      customerFirstName: "",
-      customerLastName: "",
-      customerPhone: "",
-      customerBirthDate: "",
-      isCompany: false,
-      companyDetails: undefined, // Begin met undefined in plaats van een leeg object
-      acceptTerms: false,
-    },
+  const [formData, setFormData] = useState({
+    email: "",
+    firstName: "",
+    lastName: "",
+    phone: "",
+    birthDate: "",
+    companyName: "",
+    vatNumber: "",
+    address: "",
+    postalCode: "",
+    city: "",
   })
 
-  // Formulier verzenden
-  const handleSubmit = async (data: FormValues) => {
-    try {
-      console.log("Form submitted with data:", data)
-      setIsSubmitting(true)
-      setError(null)
-      setDebugInfo(null)
-
-      // Log de product informatie
-      console.log("Product information:", {
-        id: product.id,
-        public_id: product.public_id,
-        name: product.name,
-        selectedVariant: product.selectedVariant
-          ? {
-              id: product.selectedVariant.id,
-              public_id: product.selectedVariant.public_id,
-              name: product.selectedVariant.name,
-            }
-          : null,
-      })
-
-      // Controleer of Stripe correct is geladen
-      if (!stripeLoaded) {
-        setError("Stripe is niet correct geladen. Vernieuw de pagina of probeer het later opnieuw.")
-        setIsSubmitting(false)
-        return
-      }
-
-      // Controleer of er een geselecteerde variant is
-      if (!product.selectedVariant) {
-        setError("Geen variant geselecteerd. Ga terug en selecteer een optie.")
-        setIsSubmitting(false)
-        return
-      }
-
-      // Bepaal de variant ID
-      const variantId = product.selectedVariant.public_id || product.selectedVariant.id.toString()
-
-      if (!variantId) {
-        throw new Error("Variant ID is niet beschikbaar")
-      }
-
-      console.log(`Using variant ID: ${variantId} for checkout`)
-
-      // Bereid de checkout data voor
-      const checkoutData = {
-        variantId,
-        customerEmail: data.customerEmail,
-        customerFirstName: data.customerFirstName,
-        customerLastName: data.customerLastName,
-        customerPhone: data.customerPhone || undefined,
-        customerBirthDate: data.customerBirthDate || undefined,
-        companyDetails: data.isCompany && data.companyDetails ? data.companyDetails : undefined,
-      }
-
-      console.log("Creating Stripe checkout session with data:", checkoutData)
-
-      try {
-        // Maak een Stripe checkout sessie aan
-        const response = await fetch("/api/checkout", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(checkoutData),
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || "Er is een fout opgetreden bij het aanmaken van de betaalsessie")
-        }
-
-        const { sessionId } = await response.json()
-        console.log(`Received Stripe session ID: ${sessionId}`)
-
-        // Laad Stripe
-        const stripe = await loadStripe(stripePublishableKey!)
-
-        if (!stripe) {
-          throw new Error("Stripe kon niet worden geladen")
-        }
-
-        console.log("Redirecting to Stripe checkout...")
-
-        // Redirect naar de Stripe Checkout pagina
-        const { error: redirectError } = await stripe.redirectToCheckout({
-          sessionId: sessionId,
-        })
-
-        if (redirectError) {
-          console.error("Stripe redirect error:", redirectError)
-          setDebugInfo({
-            message: "Stripe redirect error",
-            error: redirectError,
-            sessionId: sessionId,
-          })
-
-          // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
-          router.push(`/checkout/redirect?session_id=${sessionId}`)
-          return
-        }
-      } catch (checkoutError: any) {
-        console.error("Error creating checkout session:", checkoutError)
-        setError(checkoutError.message || "Er is een fout opgetreden bij het aanmaken van de betaalsessie")
-        setDebugInfo({
-          message: "Checkout session error",
-          error: checkoutError.toString(),
-          stack: checkoutError.stack,
-        })
-        setIsSubmitting(false)
-      }
-    } catch (error: any) {
-      console.error("Checkout error:", error)
-      setError(error.message || "Er is een fout opgetreden bij het verwerken van je betaling")
-      setDebugInfo({
-        message: "Checkout error",
-        error: error.toString(),
-        stack: error.stack,
-      })
-      setIsSubmitting(false)
-    }
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  // Directe submit handler als fallback
-  const handleDirectSubmit = async () => {
-    console.log("Direct submit button clicked")
-
-    try {
-      // Haal de huidige waarden op
-      const values = form.getValues()
-      console.log("Current form values:", values)
-
-      // Controleer of isCompany is aangevinkt
-      if (!values.isCompany) {
-        // Als isCompany niet is aangevinkt, zet companyDetails op undefined
-        values.companyDetails = undefined
-      }
-
-      // Valideer het formulier
-      const isValid = await form.trigger()
-      console.log("Form validation result:", isValid)
-
-      if (isValid) {
-        console.log("Form is valid, submitting with values:", values)
-        await handleSubmit(values)
-      } else {
-        console.log("Form validation failed")
-        const errors = form.formState.errors
-        console.log("Form errors:", errors)
-
-        // Toon de fouten aan de gebruiker
-        setError("Controleer of alle verplichte velden zijn ingevuld")
-        setDebugInfo({
-          message: "Form validation failed",
-          errors: errors,
-        })
-      }
-    } catch (error: any) {
-      console.error("Error in direct submit:", error)
-      setError(error.message || "Er is een fout opgetreden bij het verwerken van je betaling")
-      setDebugInfo({
-        message: "Direct submit error",
-        error: error.toString(),
-        stack: error.stack,
-      })
-    }
-  }
-
-  // Noodoplossing: bypass validatie en ga direct naar Stripe
-  const handleEmergencySubmit = async () => {
-    console.log("Emergency submit button clicked - bypassing validation")
-    setIsSubmitting(true)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
     setError(null)
-    setDebugInfo(null)
 
     try {
-      // Haal de huidige waarden op, ongeacht validatie
-      const values = form.getValues()
-
-      // Bepaal de variant ID
-      const variantId = product.selectedVariant?.public_id || product.selectedVariant?.id.toString()
-
-      if (!variantId) {
-        throw new Error("Variant ID is niet beschikbaar")
-      }
-
-      // Bereid minimale checkout data voor
-      const checkoutData = {
-        variantId,
-        customerEmail: values.customerEmail || "test@example.com",
-        customerFirstName: values.customerFirstName || "Test",
-        customerLastName: values.customerLastName || "User",
-        customerPhone: values.customerPhone,
-        customerBirthDate: values.customerBirthDate,
-        companyDetails: values.isCompany && values.companyDetails ? values.companyDetails : undefined,
-      }
-
-      console.log("Emergency checkout with data:", checkoutData)
-
-      // Maak een Stripe checkout sessie aan
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(checkoutData),
+      console.log("Submitting form with data:", {
+        productId: product.id,
+        customerEmail: formData.email,
+        customerFirstName: formData.firstName,
+        customerLastName: formData.lastName,
+        customerPhone: formData.phone,
+        customerBirthDate: formData.birthDate,
+        companyDetails: isCompany
+          ? {
+              name: formData.companyName,
+              vatNumber: formData.vatNumber,
+              address: formData.address,
+              postalCode: formData.postalCode,
+              city: formData.city,
+            }
+          : undefined,
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Er is een fout opgetreden bij het aanmaken van de betaalsessie")
-      }
-
-      const { sessionId } = await response.json()
-      console.log(`Received emergency Stripe session ID: ${sessionId}`)
-
-      // Laad Stripe
-      const stripe = await loadStripe(stripePublishableKey!)
-
-      if (!stripe) {
+      const stripe = await stripePromise
+      if (stripe) {
+        router.push(
+          `/checkout/redirect?${new URLSearchParams({
+            productId: product.id,
+            customerEmail: formData.email,
+            customerFirstName: formData.firstName,
+            customerLastName: formData.lastName,
+            customerPhone: formData.phone,
+            customerBirthDate: formData.birthDate,
+            companyName: formData.companyName,
+            vatNumber: formData.vatNumber,
+            address: formData.address,
+            postalCode: formData.postalCode,
+            city: formData.city,
+            isCompany: String(isCompany),
+            isSubscription: String(isSubscription),
+          }).toString()}`,
+        )
+      } else {
         throw new Error("Stripe kon niet worden geladen")
       }
-
-      console.log("Emergency redirect to Stripe checkout...")
-
-      // Redirect naar de Stripe Checkout pagina
-      const { error: redirectError } = await stripe.redirectToCheckout({
-        sessionId: sessionId,
-      })
-
-      if (redirectError) {
-        console.error("Stripe redirect error:", redirectError)
-        // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
-        router.push(`/checkout/redirect?session_id=${sessionId}`)
-      }
-    } catch (error: any) {
-      console.error("Emergency checkout error:", error)
-      setError(error.message || "Er is een fout opgetreden bij de noodprocedure")
-      setDebugInfo({
-        message: "Emergency checkout error",
-        error: error.toString(),
-        stack: error.stack,
-      })
-      setIsSubmitting(false)
+    } catch (error) {
+      console.error("Checkout error:", error)
+      setError("Er is een fout opgetreden bij het verwerken van je betaling. Probeer het later opnieuw.")
+    } finally {
+      setIsLoading(false)
     }
-  }
-
-  // Toon bedrijfsgegevens als isCompany is aangevinkt
-  const watchIsCompany = form.watch("isCompany")
-
-  // Update companyDetails wanneer isCompany verandert
-  useEffect(() => {
-    if (!watchIsCompany) {
-      form.setValue("companyDetails", undefined)
-    } else if (!form.getValues().companyDetails) {
-      form.setValue("companyDetails", { name: "", vatNumber: "", address: "", postalCode: "", city: "" })
-    }
-  }, [watchIsCompany, form])
-
-  // Bereken de prijs om weer te geven
-  let priceDisplay = "Prijs niet beschikbaar"
-  let subscriptionInfo = ""
-
-  if (product.selectedVariant?.prices && product.selectedVariant.prices.length > 0) {
-    const price = product.selectedVariant.prices[0]
-    priceDisplay = formatCurrency(price.amount)
-
-    if (price.recurring) {
-      const interval = price.recurring_interval || "maand"
-      const count = price.recurring_interval_count || 1
-      subscriptionInfo =
-        count === 1 ? `per ${interval}` : `elke ${count} ${interval === "month" ? "maanden" : interval}`
-    }
-
-    console.log(`Using variant price from prices array: ${priceDisplay}`)
-  } else if (product.price) {
-    priceDisplay = formatCurrency(product.price)
-    console.log(`Using product price: ${priceDisplay}`)
-  }
-
-  // Als er een Stripe configuratiefout is, toon een foutmelding
-  if (stripeError) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Betaling niet mogelijk</CardTitle>
-          <CardDescription>Er is een probleem met de betalingsverwerker</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Fout</AlertTitle>
-            <AlertDescription>{stripeError}</AlertDescription>
-          </Alert>
-        </CardContent>
-        <CardFooter>
-          <Button variant="outline" className="w-full" onClick={() => router.push("/")}>
-            Terug naar de homepage
-          </Button>
-        </CardFooter>
-      </Card>
-    )
   }
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader>
-        <CardTitle>{product.name}</CardTitle>
-        <CardDescription>
-          <div className="mt-2 font-semibold text-lg">
-            {priceDisplay}{" "}
-            {subscriptionInfo && <span className="text-sm font-normal text-gray-500">{subscriptionInfo}</span>}
+    <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg border border-[#1e1839]/10 shadow-md">
+      {error && (
+        <Alert variant="destructive" className="mb-4 bg-red-50 border-red-200 text-red-800">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Fout</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="email" className="text-[#1e1839]">
+            E-mailadres <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            required
+            value={formData.email}
+            onChange={handleChange}
+            placeholder="jouw@email.nl"
+            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="firstName" className="text-[#1e1839]">
+              Voornaam <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="firstName"
+              name="firstName"
+              required
+              value={formData.firstName}
+              onChange={handleChange}
+              className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+            />
           </div>
-          {isSubscription && <div className="text-sm mt-1 text-gray-500">Abonnement - automatisch verlengd</div>}
-          <div className="mt-3 text-sm text-gray-600">Vul je gegevens in om door te gaan naar betaling</div>
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6" id="checkout-form">
-            <div className="space-y-4">
-              <FormField
-                control={form.control}
-                name="customerEmail"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>E-mailadres</FormLabel>
-                    <FormControl>
-                      <Input placeholder="jouw@email.nl" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          <div>
+            <Label htmlFor="lastName" className="text-[#1e1839]">
+              Achternaam <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="lastName"
+              name="lastName"
+              required
+              value={formData.lastName}
+              onChange={handleChange}
+              className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+            />
+          </div>
+        </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="customerFirstName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Voornaam</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Voornaam" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+        <div>
+          <Label htmlFor="phone" className="text-[#1e1839]">
+            Telefoonnummer
+          </Label>
+          <Input
+            id="phone"
+            name="phone"
+            type="tel"
+            value={formData.phone}
+            onChange={handleChange}
+            placeholder="Bijv. 0612345678"
+            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+          />
+        </div>
 
-                <FormField
-                  control={form.control}
-                  name="customerLastName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Achternaam</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Achternaam" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+        <div>
+          <Label htmlFor="birthDate" className="text-[#1e1839]">
+            Geboortedatum
+          </Label>
+          <Input
+            id="birthDate"
+            name="birthDate"
+            type="date"
+            value={formData.birthDate}
+            onChange={handleChange}
+            className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+          />
+        </div>
 
-              <FormField
-                control={form.control}
-                name="customerPhone"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Telefoonnummer (optioneel)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="+31 6 12345678" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="isCompany"
+            checked={isCompany}
+            onChange={() => setIsCompany(!isCompany)}
+            className="border-[#1e1839]/50 data-[state=checked]:bg-[#1e1839] data-[state=checked]:text-white"
+          />
+          <Label htmlFor="isCompany" className="text-[#1e1839]">
+            Ik betaal namens een bedrijf (factuur op bedrijfsnaam)
+          </Label>
+        </div>
 
-              <FormField
-                control={form.control}
-                name="isCompany"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Zakelijke aankoop</FormLabel>
-                      <FormDescription>Vink aan als je een factuur op bedrijfsnaam wilt ontvangen</FormDescription>
-                    </div>
-                  </FormItem>
-                )}
-              />
-
-              {watchIsCompany && (
-                <div className="space-y-4 rounded-md border p-4">
-                  <FormField
-                    control={form.control}
-                    name="companyDetails.name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Bedrijfsnaam</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Bedrijfsnaam" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="companyDetails.vatNumber"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>BTW-nummer (optioneel)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="NL123456789B01" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="companyDetails.address"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Adres (optioneel)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Straatnaam 123" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="companyDetails.postalCode"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Postcode (optioneel)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="1234 AB" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="companyDetails.city"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Plaats (optioneel)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Amsterdam" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
-
-              <FormField
-                control={form.control}
-                name="acceptTerms"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>
-                        Ik ga akkoord met de{" "}
-                        <a
-                          href="https://evotion-coaching.nl/algemene-voorwaarden"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline"
-                        >
-                          algemene voorwaarden
-                        </a>
-                      </FormLabel>
-                      <FormMessage />
-                    </div>
-                  </FormItem>
-                )}
+        {isCompany && (
+          <div className="space-y-4 border-t border-[#1e1839]/10 pt-4 mt-4">
+            <div>
+              <Label htmlFor="companyName" className="text-[#1e1839]">
+                Bedrijfsnaam <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="companyName"
+                name="companyName"
+                required={isCompany}
+                value={formData.companyName}
+                onChange={handleChange}
+                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
               />
             </div>
 
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Fout</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
+            <div>
+              <Label htmlFor="vatNumber" className="text-[#1e1839]">
+                BTW-nummer
+              </Label>
+              <Input
+                id="vatNumber"
+                name="vatNumber"
+                value={formData.vatNumber}
+                onChange={handleChange}
+                placeholder="NL123456789B01"
+                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+              />
+            </div>
 
-            {debugInfo && (
-              <div className="text-xs bg-gray-100 p-2 rounded overflow-auto max-h-32">
-                <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+            <div>
+              <Label htmlFor="address" className="text-[#1e1839]">
+                Adres <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="address"
+                name="address"
+                required={isCompany}
+                value={formData.address}
+                onChange={handleChange}
+                className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="postalCode" className="text-[#1e1839]">
+                  Postcode <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="postalCode"
+                  name="postalCode"
+                  required={isCompany}
+                  value={formData.postalCode}
+                  onChange={handleChange}
+                  className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                />
               </div>
-            )}
+              <div>
+                <Label htmlFor="city" className="text-[#1e1839]">
+                  Plaats <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="city"
+                  name="city"
+                  required={isCompany}
+                  value={formData.city}
+                  onChange={handleChange}
+                  className="bg-white border-[#1e1839]/30 text-[#1e1839] focus:border-[#1e1839] focus:ring-[#1e1839]/30"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
-            {/* Normale submit button binnen het formulier */}
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Bezig met verwerken...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Doorgaan naar betaling
-                </>
-              )}
-            </Button>
-          </form>
-        </Form>
+      <Button
+        type="submit"
+        className="w-full bg-[#1e1839] hover:bg-white hover:text-[#1e1839] text-white border border-[#1e1839] transition-colors duration-300"
+        disabled={isLoading}
+      >
+        {isLoading ? "Bezig met laden..." : "Doorgaan naar betaling"}
+      </Button>
 
-        {/* Fallback button buiten het formulier */}
-        <div className="mt-4">
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={handleDirectSubmit}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Bezig met verwerken...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Alternatieve betaalmethode
-              </>
-            )}
-          </Button>
-        </div>
-
-        {/* Noodoplossing button */}
-        <div className="mt-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full text-xs text-gray-500"
-            onClick={handleEmergencySubmit}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                Bezig...
-              </>
-            ) : (
-              <>Noodoplossing (bypass validatie)</>
-            )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="text-center text-[#1e1839]/60 text-sm">
+        <p>Veilig betalen via Stripe. Je gegevens worden versleuteld verzonden.</p>
+        {product.price < 100 && (
+          <p className="mt-2 text-amber-600">
+            <strong>Test Modus:</strong> Dit is een testbetaling van {(product.price / 100).toFixed(2)} euro.
+          </p>
+        )}
+      </div>
+    </form>
   )
 }

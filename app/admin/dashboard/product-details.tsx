@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft, ExternalLink, RefreshCw, Copy, BookOpen } from "lucide-react"
+import { ArrowLeft, ExternalLink, RefreshCw, Copy, BookOpen, AlertCircle } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { formatCurrency, PaymentType, getValidPrices } from "@/lib/clickfunnels-helpers"
 
 interface ProductDetailsProps {
   productId: string
@@ -96,39 +97,16 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
     }
   }
 
-  const formatCurrency = (amount: number | string | undefined | null, currency = "EUR") => {
-    if (amount === undefined || amount === null) {
-      return "Prijs niet beschikbaar"
-    }
-
-    // Converteer naar nummer als het een string is
-    let numericAmount: number
-
-    if (typeof amount === "string") {
-      // Vervang komma's door punten voor consistente parsing
-      const normalizedAmount = amount.replace(",", ".")
-      numericAmount = Number.parseFloat(normalizedAmount)
-    } else {
-      numericAmount = amount
-    }
-
-    if (isNaN(numericAmount)) {
-      return "Ongeldige prijs"
-    }
-
-    // ClickFunnels API geeft prijzen als hele getallen (bijv. 257 voor €257)
-    return new Intl.NumberFormat("nl-NL", {
-      style: "currency",
-      currency: currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(numericAmount)
-  }
-
   // Generate payment link
   const generatePaymentLink = (product: any) => {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin
-    return `${baseUrl}/checkout/${product.id}`
+    // Check of het het 12-weken vetverlies programma is (op basis van naam)
+    if (product?.name?.toLowerCase().includes("12-weken vetverlies")) {
+      return `https://betalen.evotion-coaching.nl/checkout/12-weken-vetverlies`
+    }
+
+    // Voor andere producten, gebruik het product ID of public_id
+    const id = product?.public_id || `cf-${product?.id}`
+    return `https://betalen.evotion-coaching.nl/checkout/${id}`
   }
 
   // Copy link to clipboard
@@ -141,6 +119,134 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
       duration: 2000,
     })
     setTimeout(() => setCopiedLink(null), 2000)
+  }
+
+  // Verzamel alle geldige variant prijzen
+  const getVariantPrices = () => {
+    if (!product || !product.variants || product.variants.length === 0) return []
+
+    // Filter op actieve varianten
+    const activeVariants = product.variants.filter((variant: any) => !variant.archived)
+
+    // Verzamel alle prijzen van de varianten
+    const variantPrices: any[] = []
+
+    activeVariants.forEach((variant: any) => {
+      if (variant.prices && Array.isArray(variant.prices)) {
+        // Filter op geldige prijzen
+        const validPrices = getValidPrices(variant.prices)
+
+        // Prioriteit geven aan betalingsplannen
+        const paymentPlanPrices = validPrices.filter((price: any) => price.payment_type === PaymentType.PaymentPlan)
+
+        // Als er betalingsplannen zijn, gebruik die, anders gebruik alle geldige prijzen
+        const pricesToUse = paymentPlanPrices.length > 0 ? paymentPlanPrices : validPrices
+
+        if (pricesToUse.length > 0) {
+          pricesToUse.forEach((price: any) => {
+            variantPrices.push({
+              variantName: variant.name,
+              variantId: variant.id,
+              price: price,
+            })
+          })
+        }
+      }
+    })
+
+    return variantPrices
+  }
+
+  // Haal gekoppelde cursussen op
+  const getLinkedCourses = () => {
+    if (!product || !product.courses) return []
+    return product.courses
+  }
+
+  // Helper functie om interval label te vertalen
+  const getIntervalLabel = (interval: string, count = 1): string => {
+    const intervalMap: Record<string, [string, string]> = {
+      day: ["dag", "dagen"],
+      week: ["week", "weken"],
+      month: ["maand", "maanden"],
+      year: ["jaar", "jaar"],
+    }
+
+    const [singular, plural] = intervalMap[interval?.toLowerCase()] || ["periode", "periodes"]
+    return count === 1 ? singular : plural
+  }
+
+  // Functie om betalingsplan details te formatteren
+  const formatPaymentPlanDetails = (price: any): string => {
+    if (!price || price.payment_type !== PaymentType.PaymentPlan) return ""
+
+    // Log de prijs voor debugging
+    console.log("Formatting payment plan details for price:", price)
+
+    // Haal de benodigde gegevens op
+    const amount = Number.parseFloat(price.amount || "0")
+    const duration = Number.parseInt(price.duration || "3", 10)
+    const interval = price.interval || "month"
+    const intervalCount = Number.parseInt(price.interval_count || "1", 10)
+
+    // Log de gegevens voor debugging
+    console.log("Payment plan details:", {
+      amount,
+      duration,
+      interval,
+      intervalCount,
+    })
+
+    // Formateer het bedrag
+    const formattedAmount = formatCurrency(amount, price.currency)
+
+    // Bereken het totaalbedrag (elke termijn is het volledige bedrag)
+    const totalAmount = amount * duration
+    const formattedTotalAmount = formatCurrency(totalAmount, price.currency)
+
+    // Bepaal de juiste intervaltekst
+    const intervalLabel = getIntervalLabel(interval, intervalCount)
+
+    // Bouw de betalingsplan details string
+    let details = `${duration}x ${formattedAmount}`
+    if (intervalCount === 1) {
+      details += ` (per ${intervalLabel})`
+    } else {
+      details += ` (elke ${intervalCount} ${intervalLabel})`
+    }
+
+    // Voeg het totaalbedrag toe
+    details += ` - Totaal: ${formattedTotalAmount}`
+
+    return details
+  }
+
+  // Functie om abonnement details te formatteren
+  const formatSubscriptionDetails = (price: any): string => {
+    if (!price || price.payment_type !== PaymentType.Subscription) return ""
+
+    // Log de prijs voor debugging
+    console.log("Formatting subscription details for price:", price)
+
+    // Haal de benodigde gegevens op
+    const interval = price.interval || "month"
+    const intervalCount = Number.parseInt(price.interval_count || "1", 10)
+
+    // Log de gegevens voor debugging
+    console.log("Subscription details:", {
+      interval,
+      intervalCount,
+    })
+
+    // Bepaal de juiste intervaltekst
+    const intervalLabel = getIntervalLabel(interval, intervalCount)
+
+    // Bouw de abonnement details string
+    if (intervalCount === 1) {
+      return `Per ${intervalLabel}`
+    } else {
+      return `Elke ${intervalCount} ${intervalLabel}`
+    }
   }
 
   if (loading) {
@@ -163,18 +269,6 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-3/4" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-6 w-40" />
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -227,14 +321,12 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
     )
   }
 
-  // Debug info
-  console.log("Product object:", product)
-  console.log("Product has prices:", product.prices?.length || 0)
-  console.log("Product has variants:", product.variants?.length || 0)
-  console.log("Product has courses:", product.courses?.length || 0)
-
   const paymentLink = generatePaymentLink(product)
   const isCopied = copiedLink === paymentLink
+  const variantPrices = getVariantPrices()
+  const hasVariantPrices = variantPrices.length > 0
+  const linkedCourses = getLinkedCourses()
+  const hasLinkedCourses = linkedCourses.length > 0
 
   return (
     <div className="space-y-6">
@@ -252,256 +344,187 @@ export default function ProductDetails({ productId, onBack }: ProductDetailsProp
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Product Details Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Productgegevens</CardTitle>
-              <CardDescription>Basisinformatie over het product</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <h4 className="text-sm font-medium text-gray-500">Product ID</h4>
-                <p>{product.id}</p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-500">Publieke ID</h4>
-                <p>{product.public_id || "Geen publieke ID"}</p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-500">Beschrijving</h4>
-                <p>{product.description || "Geen beschrijving"}</p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-500">Status</h4>
-                <div className="flex flex-wrap gap-2 mt-1">
-                  <Badge variant={product.archived ? "destructive" : "outline"}>
-                    {product.archived ? "Gearchiveerd" : "Actief"}
-                  </Badge>
-                  <Badge variant={product.visible_in_store ? "default" : "outline"}>
-                    {product.visible_in_store ? "Zichtbaar in winkel" : "Onzichtbaar in winkel"}
-                  </Badge>
-                </div>
-              </div>
-              {product.current_path && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-500">URL</h4>
-                  <a
-                    href={product.current_path}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 flex items-center"
-                  >
-                    {product.current_path}
-                    <ExternalLink className="h-4 w-4 ml-1" />
-                  </a>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+      {/* Eén overzichtelijke box met alle productgegevens */}
+      <Card className="border-[#1e1839]/10 shadow-sm">
+        <CardHeader className="border-b border-[#1e1839]/10 bg-[#1e1839]/5 pb-3">
+          <CardTitle>Productoverzicht</CardTitle>
+          <CardDescription>Alle belangrijke informatie over dit product</CardDescription>
+        </CardHeader>
 
-          {/* Variants Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Varianten</CardTitle>
-              <CardDescription>Beschikbare varianten van dit product</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {product.variants && product.variants.length > 0 ? (
-                <div className="space-y-4">
-                  {product.variants.map((variant: any) => (
-                    <Card key={variant.id} className="border border-gray-200">
-                      <CardHeader className="pb-2">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <CardTitle className="text-lg">{variant.name}</CardTitle>
-                            <CardDescription>{variant.description || "Geen beschrijving"}</CardDescription>
-                          </div>
-                          <Badge variant={variant.default ? "default" : "outline"}>
-                            {variant.default ? "Standaard" : "Variant"}
-                          </Badge>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="pb-2">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-500">Variant ID</h4>
-                            <p>{variant.id}</p>
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-500">SKU</h4>
-                            <p>{variant.sku || "Geen SKU"}</p>
-                          </div>
-                        </div>
-
-                        {/* Prijzen voor deze variant */}
-                        {variant.prices && variant.prices.length > 0 && (
-                          <div className="mt-4">
-                            <h4 className="text-sm font-medium text-gray-500 mb-2">Prijzen</h4>
-                            <div className="grid grid-cols-1 gap-2">
-                              {variant.prices.map((price: any) => (
-                                <div
-                                  key={price.id}
-                                  className="flex justify-between items-center p-2 bg-gray-50 rounded-md"
-                                >
-                                  <div>
-                                    <span className="font-medium">{formatCurrency(price.amount, price.currency)}</span>
-                                    {price.recurring && (
-                                      <span className="text-sm text-gray-500 ml-2">
-                                        / {price.interval_count || 1} {price.interval || "maand"}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <Badge variant="outline" className="text-xs">
-                                    {price.recurring ? "Terugkerend" : "Eenmalig"}
-                                  </Badge>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 italic">Geen varianten gevonden voor dit product.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Courses Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <BookOpen className="h-5 w-5 mr-2" />
-                Gekoppelde cursussen
-              </CardTitle>
-              <CardDescription>Cursussen die aan dit product zijn gekoppeld via collections</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {product.courses && product.courses.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {product.courses.map((course: any, index: number) => (
-                    <Card key={index} className="border border-gray-200">
-                      <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-base">{course.courseName}</CardTitle>
-                        <CardDescription>ID: {course.courseId}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="p-4 pt-2">
-                        <Badge className="mb-2 bg-purple-50 text-purple-700 border-purple-200">
-                          Collection: {course.collectionName}
-                        </Badge>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-4 text-center text-gray-500 border border-dashed border-gray-200 rounded-md">
-                  <p>Geen cursussen gevonden voor dit product</p>
-                  <p className="text-sm mt-1">
-                    Voeg dit product toe aan een collection met de naam "COURSE: [Cursusnaam]" om cursussen te koppelen.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Standaard prijs Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Standaard prijs</CardTitle>
-              <CardDescription>Huidige prijs voor dit product</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center">
-                {product.defaultPrice ? (
-                  <p className="text-3xl font-bold">{formatCurrency(product.defaultPrice.amount)}</p>
-                ) : product.prices && product.prices.length > 0 ? (
-                  <p className="text-3xl font-bold">{formatCurrency(product.prices[0].amount)}</p>
-                ) : (
-                  <p className="text-gray-500">Prijs niet beschikbaar</p>
-                )}
+        <CardContent className="pt-4 space-y-6">
+          {/* Productgegevens sectie */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-sm font-medium text-gray-500">Product ID</h4>
+              <p>{product.id}</p>
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-500">Publieke ID</h4>
+              <p>{product.public_id || "Geen publieke ID"}</p>
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-500">Status</h4>
+              <div className="flex flex-wrap gap-2 mt-1">
+                <Badge variant={product.archived ? "destructive" : "outline"}>
+                  {product.archived ? "Gearchiveerd" : "Actief"}
+                </Badge>
+                <Badge variant={product.visible_in_store ? "default" : "outline"}>
+                  {product.visible_in_store ? "Zichtbaar in winkel" : "Onzichtbaar in winkel"}
+                </Badge>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {/* Prijzen Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Alle prijzen</CardTitle>
-              <CardDescription>Alle prijzen voor dit product</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {product.prices && product.prices.length > 0 ? (
-                <div className="space-y-3">
-                  {product.prices.map((price: any) => (
-                    <div key={price.id} className="p-3 bg-gray-50 rounded-lg">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">{formatCurrency(price.amount, price.currency)}</span>
-                        <Badge variant="outline">{price.recurring ? "Terugkerend" : "Eenmalig"}</Badge>
-                      </div>
-                      {price.recurring && (
-                        <p className="text-sm text-gray-500 mt-1">
-                          Elke {price.interval_count || 1} {price.interval || "maand"}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-400 mt-1">ID: {price.id}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <Alert>
-                  <AlertTitle>Geen prijzen gevonden</AlertTitle>
-                  <AlertDescription>Dit product heeft geen prijzen. Voeg prijzen toe in ClickFunnels.</AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Betaallinks Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Betaallinks</CardTitle>
-              <CardDescription>Deel deze link om het product te verkopen</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Input
-                  value={paymentLink}
-                  readOnly
-                  className="text-sm bg-gray-50"
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className={`flex-shrink-0 ${
-                    isCopied
-                      ? "bg-green-50 text-green-700 border-green-200"
-                      : "text-[#1e1839] border-[#1e1839] hover:bg-[#1e1839] hover:text-white"
-                  }`}
-                  onClick={() => copyToClipboard(paymentLink)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
+          {/* Betaallink sectie */}
+          <div className="bg-[#1e1839]/5 p-3 rounded-md">
+            <p className="text-sm font-medium text-[#1e1839] mb-1">Betaallink:</p>
+            <div className="flex items-center gap-2">
+              <Input
+                value={paymentLink}
+                readOnly
+                className="text-sm bg-gray-50"
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+              />
               <Button
-                className="w-full"
-                onClick={() => {
-                  window.open(paymentLink, "_blank")
-                }}
+                size="icon"
+                variant="outline"
+                className={`flex-shrink-0 ${
+                  isCopied
+                    ? "bg-green-50 text-green-700 border-green-200"
+                    : "text-[#1e1839] border-[#1e1839] hover:bg-[#1e1839] hover:text-white"
+                }`}
+                onClick={() => copyToClipboard(paymentLink)}
               >
-                Betaallink testen
+                <Copy className="h-4 w-4" />
               </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+            </div>
+          </div>
+
+          {/* Prijsvarianten sectie */}
+          {hasVariantPrices ? (
+            <div className="space-y-3">
+              <h3 className="text-md font-semibold text-[#1e1839]">Beschikbare prijzen</h3>
+              <div className="grid gap-3 md:grid-cols-3">
+                {variantPrices.map((item, index) => {
+                  const price = item.price
+
+                  // Log de prijs voor debugging
+                  console.log(`Rendering price card for price ID ${price?.id}:`, price)
+
+                  const isPaymentPlan = price.payment_type === PaymentType.PaymentPlan
+                  const isSubscription = price.payment_type === PaymentType.Subscription
+
+                  let bgColorClass = "bg-gray-50/50"
+                  let borderColorClass = "border-gray-200"
+
+                  if (isPaymentPlan) {
+                    bgColorClass = "bg-amber-50/50"
+                    borderColorClass = "border-amber-200"
+                  } else if (isSubscription) {
+                    bgColorClass = "bg-blue-50/50"
+                    borderColorClass = "border-blue-200"
+                  }
+
+                  // Bepaal de betalingsdetails
+                  let paymentDetails = ""
+                  if (isPaymentPlan) {
+                    paymentDetails = formatPaymentPlanDetails(price)
+                  } else if (isSubscription) {
+                    paymentDetails = formatSubscriptionDetails(price)
+                  }
+
+                  return (
+                    <div
+                      key={`${item.variantId}-${price.id}`}
+                      className={`${bgColorClass} p-3 rounded-md border ${borderColorClass}`}
+                    >
+                      <div className="mb-2">
+                        <Badge className="mb-1">{item.variantName}</Badge>
+                        <h4 className="font-semibold text-lg">{formatCurrency(price.amount, price.currency)}</h4>
+                      </div>
+
+                      {paymentDetails && <p className="text-sm text-[#1e1839]/80 mb-2">{paymentDetails}</p>}
+
+                      <div className="text-xs text-[#1e1839]/60">
+                        <p>ID: {price.id}</p>
+                        <p>Type: {price.payment_type || "one_time"}</p>
+                        {isPaymentPlan && (
+                          <>
+                            <p>Duur: {price.duration || "3"} termijnen</p>
+                            <p>
+                              Interval: {price.interval_count || "1"}{" "}
+                              {getIntervalLabel(price.interval || "month", price.interval_count || 1)}
+                            </p>
+                          </>
+                        )}
+                        {isSubscription && (
+                          <p>
+                            Interval: {price.interval_count || "1"}{" "}
+                            {getIntervalLabel(price.interval || "month", price.interval_count || 1)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Geen prijzen beschikbaar</AlertTitle>
+              <AlertDescription>Er zijn momenteel geen actieve prijzen beschikbaar voor dit product.</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Gekoppelde cursussen sectie */}
+          {hasLinkedCourses && (
+            <div className="space-y-3">
+              <h3 className="text-md font-semibold text-[#1e1839] flex items-center">
+                <BookOpen className="h-4 w-4 mr-1.5" />
+                Gekoppelde cursussen
+              </h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                {linkedCourses.map((course: any, index: number) => (
+                  <div key={index} className="bg-purple-50/50 p-3 rounded-md border border-purple-200">
+                    <h4 className="font-medium text-[#1e1839]">{course.courseName}</h4>
+                    <p className="text-xs text-[#1e1839]/60 mt-1">ID: {course.courseId}</p>
+                    <Badge className="mt-2 bg-purple-100 text-purple-700 border-purple-200">
+                      {course.collectionName}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+
+        <CardFooter className="flex justify-between border-t border-[#1e1839]/10 pt-4">
+          <Button
+            variant="outline"
+            className="text-[#1e1839] border-[#1e1839] hover:bg-[#1e1839] hover:text-white"
+            onClick={() => {
+              window.open(
+                product.current_path
+                  ? `https://www.evotion-coaching.nl${product.current_path}`
+                  : `https://www.evotion-coaching.nl/products/${product?.public_id || product?.id}`,
+                "_blank",
+              )
+            }}
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Bekijk Product
+          </Button>
+          <Button
+            className="bg-white text-[#1e1839] hover:bg-[#1e1839] hover:text-white border border-[#1e1839]"
+            onClick={() => {
+              window.open(paymentLink, "_blank")
+            }}
+          >
+            Betaallink testen
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   )
 }
