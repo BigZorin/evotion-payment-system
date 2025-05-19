@@ -14,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { loadStripe } from "@stripe/stripe-js"
 import { formatCurrency } from "@/lib/utils"
+import { createStripeCheckoutSession } from "@/lib/stripe-checkout"
 
 // Formulier schema
 const formSchema = z.object({
@@ -125,8 +126,7 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
         id: product.id,
         public_id: product.public_id,
         name: product.name,
-        prices: product.prices,
-        defaultPrice: product.defaultPrice,
+        selectedVariant: product.selectedVariant,
       })
 
       // Controleer of Stripe correct is geladen
@@ -136,18 +136,25 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
         return
       }
 
-      // Bepaal de product ID
-      const productId = product.public_id || product.id.toString()
-
-      if (!productId) {
-        throw new Error("Product ID is niet beschikbaar")
+      // Controleer of er een geselecteerde variant is
+      if (!product.selectedVariant) {
+        setError("Geen variant geselecteerd. Ga terug en selecteer een optie.")
+        setIsSubmitting(false)
+        return
       }
 
-      console.log(`Using product ID: ${productId} for checkout`)
+      // Bepaal de variant ID
+      const variantId = product.selectedVariant.public_id || product.selectedVariant.id.toString()
+
+      if (!variantId) {
+        throw new Error("Variant ID is niet beschikbaar")
+      }
+
+      console.log(`Using variant ID: ${variantId} for checkout`)
 
       // Bereid de checkout data voor
       const checkoutData = {
-        productId,
+        variantId,
         customerEmail: data.customerEmail,
         customerFirstName: data.customerFirstName,
         customerLastName: data.customerLastName,
@@ -156,58 +163,38 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
         companyDetails: data.isCompany ? data.companyDetails : undefined,
       }
 
-      console.log("Sending checkout data to API:", checkoutData)
+      console.log("Creating Stripe checkout session with data:", checkoutData)
 
-      // Stuur de checkout data naar de API
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(checkoutData),
-      })
+      // Maak een Stripe checkout sessie aan
+      const { sessionId, isSubscription } = await createStripeCheckoutSession(checkoutData)
 
-      // Verwerk de API response
-      const result = await response.json()
+      console.log(`Received Stripe session ID: ${sessionId}, isSubscription: ${isSubscription}`)
 
-      console.log("API response:", result)
+      // Laad Stripe
+      const stripe = await loadStripe(stripePublishableKey!)
 
-      if (!response.ok) {
-        throw new Error(result.error || "Er is een fout opgetreden bij het verwerken van je betaling")
+      if (!stripe) {
+        throw new Error("Stripe kon niet worden geladen")
       }
 
-      // Redirect naar Stripe Checkout
-      if (result.sessionId) {
-        console.log(`Received Stripe session ID: ${result.sessionId}`)
+      console.log("Redirecting to Stripe checkout...")
 
-        // Laad Stripe
-        const stripe = await loadStripe(stripePublishableKey!)
+      // Redirect naar de Stripe Checkout pagina
+      const { error } = await stripe.redirectToCheckout({
+        sessionId: sessionId,
+      })
 
-        if (!stripe) {
-          throw new Error("Stripe kon niet worden geladen")
-        }
-
-        console.log("Redirecting to Stripe checkout...")
-
-        // Redirect naar de Stripe Checkout pagina
-        const { error } = await stripe.redirectToCheckout({
-          sessionId: result.sessionId,
+      if (error) {
+        console.error("Stripe redirect error:", error)
+        setDebugInfo({
+          message: "Stripe redirect error",
+          error: error,
+          sessionId: sessionId,
         })
 
-        if (error) {
-          console.error("Stripe redirect error:", error)
-          setDebugInfo({
-            message: "Stripe redirect error",
-            error: error,
-            sessionId: result.sessionId,
-          })
-
-          // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
-          router.push(`/checkout/redirect?session_id=${result.sessionId}`)
-          return
-        }
-      } else {
-        throw new Error("Geen sessie ID ontvangen van de server")
+        // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
+        router.push(`/checkout/redirect?session_id=${sessionId}`)
+        return
       }
     } catch (error: any) {
       console.error("Checkout error:", error)
@@ -226,18 +213,23 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
 
   // Bereken de prijs om weer te geven
   let priceDisplay = "Prijs niet beschikbaar"
+  let subscriptionInfo = ""
+
   if (product.selectedVariant?.prices && product.selectedVariant.prices.length > 0) {
-    priceDisplay = formatCurrency(product.selectedVariant.prices[0].amount)
+    const price = product.selectedVariant.prices[0]
+    priceDisplay = formatCurrency(price.amount)
+
+    if (price.recurring) {
+      const interval = price.recurring_interval || "maand"
+      const count = price.recurring_interval_count || 1
+      subscriptionInfo =
+        count === 1 ? `per ${interval}` : `elke ${count} ${interval === "month" ? "maanden" : interval}`
+    }
+
     console.log(`Using variant price from prices array: ${priceDisplay}`)
   } else if (product.price) {
     priceDisplay = formatCurrency(product.price)
     console.log(`Using product price: ${priceDisplay}`)
-  } else if (product.defaultPrice?.amount) {
-    priceDisplay = formatCurrency(product.defaultPrice.amount)
-    console.log(`Using default price: ${priceDisplay}`)
-  } else if (product.prices && product.prices.length > 0) {
-    priceDisplay = formatCurrency(product.prices[0].amount)
-    console.log(`Using first price from prices array: ${priceDisplay}`)
   }
 
   // Als er een Stripe configuratiefout is, toon een foutmelding
@@ -269,7 +261,10 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
       <CardHeader>
         <CardTitle>{product.name}</CardTitle>
         <CardDescription>
-          <div className="mt-2 font-semibold text-lg">{priceDisplay}</div>
+          <div className="mt-2 font-semibold text-lg">
+            {priceDisplay}{" "}
+            {subscriptionInfo && <span className="text-sm font-normal text-gray-500">{subscriptionInfo}</span>}
+          </div>
           {isSubscription && <div className="text-sm mt-1 text-gray-500">Abonnement - automatisch verlengd</div>}
           <div className="mt-3 text-sm text-gray-600">Vul je gegevens in om door te gaan naar betaling</div>
         </CardDescription>

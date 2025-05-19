@@ -179,7 +179,7 @@ export default function ApiStatusDashboard({ initialData }: ApiStatusDashboardPr
     activeTab === "all" ? results : results.filter((result) => result.endpoint.category === activeTab)
 
   return (
-    <div className="container mx-auto py-6 space-y-6 pl-6 pr-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">API Status Dashboard</h1>

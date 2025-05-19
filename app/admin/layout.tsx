@@ -17,7 +17,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   return (
     <div className="flex min-h-screen bg-gray-100">
       {/* Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-gray-200">
+      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-gray-200 fixed h-full">
         <div className="p-6">
           <Link href="/admin/dashboard" className="flex items-center">
             <span className="text-xl font-bold text-[#1e1839]">Admin</span>
@@ -41,7 +41,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 md:ml-64">{children}</main>
     </div>
   )
 }

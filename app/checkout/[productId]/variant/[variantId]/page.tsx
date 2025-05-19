@@ -233,11 +233,13 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
               <div className="mb-6">
                 <h2 className="text-lg font-medium text-gray-900 mb-2">Over deze optie</h2>
                 <div className="text-gray-600 prose prose-sm max-w-none">
-                  {variantDescription.split("\n").map((paragraph, index) => (
-                    <p key={index} className="mb-2">
-                      {paragraph}
-                    </p>
-                  ))}
+                  {variantDescription.split("\n").map((paragraph, index) =>
+                    paragraph ? (
+                      <p key={index} className="mb-2">
+                        {paragraph}
+                      </p>
+                    ) : null,
+                  )}
                 </div>
               </div>
             )}
@@ -246,11 +248,13 @@ export default async function VariantCheckoutPage({ params }: { params: { produc
               <div className="mb-6">
                 <h2 className="text-lg font-medium text-gray-900 mb-2">Productbeschrijving</h2>
                 <div className="text-gray-600 prose prose-sm max-w-none">
-                  {productDescription.split("\n").map((paragraph, index) => (
-                    <p key={index} className="mb-2">
-                      {paragraph}
-                    </p>
-                  ))}
+                  {productDescription.split("\n").map((paragraph, index) =>
+                    paragraph ? (
+                      <p key={index} className="mb-2">
+                        {paragraph}
+                      </p>
+                    ) : null,
+                  )}
                 </div>
               </div>
             )}
