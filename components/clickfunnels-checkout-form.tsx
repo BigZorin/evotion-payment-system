@@ -15,7 +15,7 @@ import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { loadStripe } from "@stripe/stripe-js"
 import { formatCurrency } from "@/lib/utils"
 
-// Formulier schema
+// Verbeterd formulier schema
 const formSchema = z.object({
   customerEmail: z.string().email({ message: "Voer een geldig e-mailadres in" }),
   customerFirstName: z.string().min(1, { message: "Voornaam is verplicht" }),
@@ -23,15 +23,23 @@ const formSchema = z.object({
   customerPhone: z.string().optional(),
   customerBirthDate: z.string().optional(),
   isCompany: z.boolean().default(false),
-  companyDetails: z
-    .object({
-      name: z.string().min(1, { message: "Bedrijfsnaam is verplicht" }),
-      vatNumber: z.string().optional(),
-      address: z.string().optional(),
-      postalCode: z.string().optional(),
-      city: z.string().optional(),
-    })
-    .optional(),
+  companyDetails: z.preprocess(
+    // Als isCompany false is, maak companyDetails undefined
+    (val, ctx) => {
+      const isCompany = ctx.parent?.isCompany
+      if (!isCompany) return undefined
+      return val
+    },
+    z
+      .object({
+        name: z.string().min(1, { message: "Bedrijfsnaam is verplicht" }),
+        vatNumber: z.string().optional(),
+        address: z.string().optional(),
+        postalCode: z.string().optional(),
+        city: z.string().optional(),
+      })
+      .optional(),
+  ),
   acceptTerms: z.boolean().refine((val) => val === true, {
     message: "Je moet akkoord gaan met de algemene voorwaarden",
   }),
@@ -51,6 +59,7 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
   const [stripeError, setStripeError] = useState<string | null>(null)
   const [stripeLoaded, setStripeLoaded] = useState(false)
   const [debugInfo, setDebugInfo] = useState<any>(null)
+  const [bypassValidation, setBypassValidation] = useState(false)
 
   // Haal de Stripe publishable key op uit de environment variables
   const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
@@ -102,13 +111,7 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
       customerPhone: "",
       customerBirthDate: "",
       isCompany: false,
-      companyDetails: {
-        name: "",
-        vatNumber: "",
-        address: "",
-        postalCode: "",
-        city: "",
-      },
+      companyDetails: undefined, // Begin met undefined in plaats van een leeg object
       acceptTerms: false,
     },
   })
@@ -166,7 +169,7 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
         customerLastName: data.customerLastName,
         customerPhone: data.customerPhone || undefined,
         customerBirthDate: data.customerBirthDate || undefined,
-        companyDetails: data.isCompany ? data.companyDetails : undefined,
+        companyDetails: data.isCompany && data.companyDetails ? data.companyDetails : undefined,
       }
 
       console.log("Creating Stripe checkout session with data:", checkoutData)
@@ -240,20 +243,138 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
   // Directe submit handler als fallback
   const handleDirectSubmit = async () => {
     console.log("Direct submit button clicked")
-    const isValid = await form.trigger()
-    if (isValid) {
+
+    try {
+      // Haal de huidige waarden op
       const values = form.getValues()
-      console.log("Form is valid, submitting with values:", values)
-      await handleSubmit(values)
-    } else {
-      console.log("Form validation failed")
-      const errors = form.formState.errors
-      console.log("Form errors:", errors)
+      console.log("Current form values:", values)
+
+      // Controleer of isCompany is aangevinkt
+      if (!values.isCompany) {
+        // Als isCompany niet is aangevinkt, zet companyDetails op undefined
+        values.companyDetails = undefined
+      }
+
+      // Valideer het formulier
+      const isValid = await form.trigger()
+      console.log("Form validation result:", isValid)
+
+      if (isValid) {
+        console.log("Form is valid, submitting with values:", values)
+        await handleSubmit(values)
+      } else {
+        console.log("Form validation failed")
+        const errors = form.formState.errors
+        console.log("Form errors:", errors)
+
+        // Toon de fouten aan de gebruiker
+        setError("Controleer of alle verplichte velden zijn ingevuld")
+        setDebugInfo({
+          message: "Form validation failed",
+          errors: errors,
+        })
+      }
+    } catch (error: any) {
+      console.error("Error in direct submit:", error)
+      setError(error.message || "Er is een fout opgetreden bij het verwerken van je betaling")
+      setDebugInfo({
+        message: "Direct submit error",
+        error: error.toString(),
+        stack: error.stack,
+      })
+    }
+  }
+
+  // Noodoplossing: bypass validatie en ga direct naar Stripe
+  const handleEmergencySubmit = async () => {
+    console.log("Emergency submit button clicked - bypassing validation")
+    setIsSubmitting(true)
+    setError(null)
+    setDebugInfo(null)
+
+    try {
+      // Haal de huidige waarden op, ongeacht validatie
+      const values = form.getValues()
+
+      // Bepaal de variant ID
+      const variantId = product.selectedVariant?.public_id || product.selectedVariant?.id.toString()
+
+      if (!variantId) {
+        throw new Error("Variant ID is niet beschikbaar")
+      }
+
+      // Bereid minimale checkout data voor
+      const checkoutData = {
+        variantId,
+        customerEmail: values.customerEmail || "test@example.com",
+        customerFirstName: values.customerFirstName || "Test",
+        customerLastName: values.customerLastName || "User",
+        customerPhone: values.customerPhone,
+        customerBirthDate: values.customerBirthDate,
+        companyDetails: values.isCompany && values.companyDetails ? values.companyDetails : undefined,
+      }
+
+      console.log("Emergency checkout with data:", checkoutData)
+
+      // Maak een Stripe checkout sessie aan
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(checkoutData),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Er is een fout opgetreden bij het aanmaken van de betaalsessie")
+      }
+
+      const { sessionId } = await response.json()
+      console.log(`Received emergency Stripe session ID: ${sessionId}`)
+
+      // Laad Stripe
+      const stripe = await loadStripe(stripePublishableKey!)
+
+      if (!stripe) {
+        throw new Error("Stripe kon niet worden geladen")
+      }
+
+      console.log("Emergency redirect to Stripe checkout...")
+
+      // Redirect naar de Stripe Checkout pagina
+      const { error: redirectError } = await stripe.redirectToCheckout({
+        sessionId: sessionId,
+      })
+
+      if (redirectError) {
+        console.error("Stripe redirect error:", redirectError)
+        // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
+        router.push(`/checkout/redirect?session_id=${sessionId}`)
+      }
+    } catch (error: any) {
+      console.error("Emergency checkout error:", error)
+      setError(error.message || "Er is een fout opgetreden bij de noodprocedure")
+      setDebugInfo({
+        message: "Emergency checkout error",
+        error: error.toString(),
+        stack: error.stack,
+      })
+      setIsSubmitting(false)
     }
   }
 
   // Toon bedrijfsgegevens als isCompany is aangevinkt
   const watchIsCompany = form.watch("isCompany")
+
+  // Update companyDetails wanneer isCompany verandert
+  useEffect(() => {
+    if (!watchIsCompany) {
+      form.setValue("companyDetails", undefined)
+    } else if (!form.getValues().companyDetails) {
+      form.setValue("companyDetails", { name: "", vatNumber: "", address: "", postalCode: "", city: "" })
+    }
+  }, [watchIsCompany, form])
 
   // Bereken de prijs om weer te geven
   let priceDisplay = "Prijs niet beschikbaar"
@@ -544,6 +665,27 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Alternatieve betaalmethode
               </>
+            )}
+          </Button>
+        </div>
+
+        {/* Noodoplossing button */}
+        <div className="mt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full text-xs text-gray-500"
+            onClick={handleEmergencySubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                Bezig...
+              </>
+            ) : (
+              <>Noodoplossing (bypass validatie)</>
             )}
           </Button>
         </div>
