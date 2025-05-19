@@ -14,7 +14,7 @@ export default async function ApiStatusPage() {
   const summary = calculateSummary(results)
 
   return (
-    <div className="container py-6">
+    <div className="container py-6 px-8">
       <ApiStatusDashboard initialData={{ results, summary }} />
     </div>
   )

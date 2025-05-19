@@ -29,6 +29,17 @@ export interface ApiStatusResult {
   error?: string
 }
 
+// Functie om de basis-URL te bepalen
+function getBaseUrl() {
+  // In de browser, gebruik window.location.origin
+  if (typeof window !== "undefined") {
+    return window.location.origin
+  }
+
+  // Op de server, gebruik de environment variable of een default
+  return process.env.NEXT_PUBLIC_BASE_URL || ""
+}
+
 // Definieer alle API endpoints die we willen monitoren
 export const apiEndpoints: ApiEndpoint[] = [
   // ClickFunnels API endpoints
@@ -90,7 +101,7 @@ export const apiEndpoints: ApiEndpoint[] = [
     category: "stripe",
   },
 
-  // Interne API endpoints
+  // Interne API endpoints - deze worden dynamisch aangevuld met de basis-URL
   {
     name: "Dashboard API",
     url: "/api/admin/dashboard",
@@ -146,42 +157,62 @@ export async function checkApiStatus(endpoint: ApiEndpoint): Promise<ApiStatusRe
     }
     // Voor alle andere endpoints gebruiken we fetch
     else {
-      const response = await fetch(endpoint.url, {
-        method: endpoint.method,
-        headers: endpoint.headers,
-        cache: "no-store",
-      })
+      // Zorg ervoor dat de URL geldig is
+      let url
+      try {
+        // Als het een absolute URL is, gebruik deze direct
+        if (endpoint.url.startsWith("http")) {
+          url = endpoint.url
+        }
+        // Als het een relatieve URL is, voeg de basis-URL toe
+        else {
+          const baseUrl = getBaseUrl()
+          url = `${baseUrl}${endpoint.url.startsWith("/") ? "" : "/"}${endpoint.url}`
+        }
 
-      statusCode = response.status
+        console.log(`Fetching API status for: ${url}`)
 
-      if (response.ok) {
-        status = "online"
+        const response = await fetch(url, {
+          method: endpoint.method,
+          headers: endpoint.headers,
+          cache: "no-store",
+        })
 
-        // Voor sommige endpoints willen we extra informatie tonen
-        if (endpoint.category === "clickfunnels") {
-          try {
-            const data = await response.json()
-            if (Array.isArray(data)) {
-              message = `${data.length} items gevonden`
-            } else {
-              message = "Data succesvol opgehaald"
+        statusCode = response.status
+
+        if (response.ok) {
+          status = "online"
+
+          // Voor sommige endpoints willen we extra informatie tonen
+          if (endpoint.category === "clickfunnels") {
+            try {
+              const data = await response.json()
+              if (Array.isArray(data)) {
+                message = `${data.length} items gevonden`
+              } else {
+                message = "Data succesvol opgehaald"
+              }
+            } catch (e) {
+              message = "Data opgehaald, maar kon niet worden geparsed"
             }
-          } catch (e) {
-            message = "Data opgehaald, maar kon niet worden geparsed"
+          } else {
+            message = "API is beschikbaar"
           }
         } else {
-          message = "API is beschikbaar"
-        }
-      } else {
-        status = "offline"
-        message = `HTTP status: ${response.status} ${response.statusText}`
+          status = "offline"
+          message = `HTTP status: ${response.status} ${response.statusText}`
 
-        try {
-          const errorData = await response.text()
-          error = errorData
-        } catch (e) {
-          // Ignore error parsing errors
+          try {
+            const errorData = await response.text()
+            error = errorData
+          } catch (e) {
+            // Ignore error parsing errors
+          }
         }
+      } catch (urlError) {
+        status = "offline"
+        message = "Ongeldige URL"
+        error = urlError instanceof Error ? urlError.message : "URL parsing error"
       }
     }
   } catch (e) {
@@ -212,16 +243,13 @@ export async function checkApiStatus(endpoint: ApiEndpoint): Promise<ApiStatusRe
 // Functie om de status van alle API endpoints te controleren
 export async function checkAllApiStatus(): Promise<ApiStatusResult[]> {
   const results = await Promise.all(apiEndpoints.map((endpoint) => checkApiStatus(endpoint)))
-
   return results
 }
 
 // Functie om de status van alle API endpoints per categorie te controleren
 export async function checkApiStatusByCategory(category: string): Promise<ApiStatusResult[]> {
   const endpoints = apiEndpoints.filter((endpoint) => endpoint.category === category)
-
   const results = await Promise.all(endpoints.map((endpoint) => checkApiStatus(endpoint)))
-
   return results
 }
 

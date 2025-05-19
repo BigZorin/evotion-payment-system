@@ -42,14 +42,21 @@ interface ApiStatusSummary {
   }[]
 }
 
-export default function ApiStatusDashboard() {
-  const [results, setResults] = useState<ApiStatusResult[]>([])
-  const [summary, setSummary] = useState<ApiStatusSummary | null>(null)
-  const [loading, setLoading] = useState(true)
+interface ApiStatusDashboardProps {
+  initialData?: {
+    results: ApiStatusResult[]
+    summary: ApiStatusSummary
+  }
+}
+
+export default function ApiStatusDashboard({ initialData }: ApiStatusDashboardProps) {
+  const [results, setResults] = useState<ApiStatusResult[]>(initialData?.results || [])
+  const [summary, setSummary] = useState<ApiStatusSummary | null>(initialData?.summary || null)
+  const [loading, setLoading] = useState(!initialData)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("all")
   const [refreshing, setRefreshing] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialData ? new Date() : null)
 
   // Functie om de API status op te halen
   const fetchApiStatus = async (category?: string) => {
@@ -57,20 +64,30 @@ export default function ApiStatusDashboard() {
       setRefreshing(true)
       const url =
         category && category !== "all" ? `/api/admin/api-status?category=${category}` : "/api/admin/api-status"
-      const response = await fetch(url, { cache: "no-store" })
+
+      console.log(`Fetching API status from: ${url}`)
+
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      })
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const data = await response.json()
+      console.log("API status data:", data)
+
       setResults(data.results)
       setSummary(data.summary)
       setLastUpdated(new Date())
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Er is een fout opgetreden bij het ophalen van de API status")
       console.error("Error fetching API status:", err)
+      setError(err instanceof Error ? err.message : "Er is een fout opgetreden bij het ophalen van de API status")
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -107,10 +124,12 @@ export default function ApiStatusDashboard() {
     }
   }
 
-  // Laad de API status bij het laden van de component
+  // Laad de API status bij het laden van de component als er geen initialData is
   useEffect(() => {
-    fetchApiStatus()
-  }, [])
+    if (!initialData) {
+      fetchApiStatus()
+    }
+  }, [initialData])
 
   // Functie om de juiste kleur te bepalen voor de status
   const getStatusColor = (status: string) => {
@@ -160,7 +179,7 @@ export default function ApiStatusDashboard() {
     activeTab === "all" ? results : results.filter((result) => result.endpoint.category === activeTab)
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto py-6 space-y-6 pl-6 pr-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">API Status Dashboard</h1>
