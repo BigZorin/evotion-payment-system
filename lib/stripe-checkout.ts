@@ -32,13 +32,20 @@ export async function createStripeCheckoutSession({
   try {
     console.log(`Creating Stripe checkout session for variant ${variantId} and customer ${customerEmail}`)
 
+    // Controleer of Stripe correct is geconfigureerd
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error("STRIPE_SECRET_KEY is niet geconfigureerd")
+      throw new Error("Stripe is niet correct geconfigureerd. Neem contact op met de beheerder.")
+    }
+
     // Haal de variant op
     const variant = await getClickfunnelsVariant(variantId)
     if (!variant) {
+      console.error(`Variant met ID ${variantId} niet gevonden`)
       throw new Error(`Variant met ID ${variantId} niet gevonden`)
     }
 
-    console.log(`Variant found: ${variant.name}`)
+    console.log(`Variant found: ${variant.name}`, JSON.stringify(variant, null, 2))
 
     // Haal de prijs op
     let price = null
@@ -53,11 +60,14 @@ export async function createStripeCheckoutSession({
         recurringInterval = price.recurring_interval || "month"
         recurringIntervalCount = price.recurring_interval_count || 1
       }
+      console.log(`Using price from variant.prices:`, JSON.stringify(price, null, 2))
     } else if (variant.price_ids && variant.price_ids.length > 0) {
       // Als de variant wel price_ids heeft maar geen prices array, haal dan de prijzen op
       try {
         const priceId = variant.price_ids[0]
+        console.log(`Fetching price with ID ${priceId}`)
         price = await getClickfunnelsPrice(priceId)
+        console.log(`Fetched price:`, JSON.stringify(price, null, 2))
         isSubscription = price.recurring === true
         if (isSubscription) {
           recurringInterval = price.recurring_interval || "month"
@@ -65,11 +75,12 @@ export async function createStripeCheckoutSession({
         }
       } catch (error) {
         console.error(`Error fetching price for variant ${variant.id}:`, error)
-        throw new Error(`Kon de prijs voor variant ${variant.name} niet ophalen`)
+        throw new Error(`Kon de prijs voor variant ${variant.name} niet ophalen: ${error.message}`)
       }
     }
 
     if (!price) {
+      console.error(`Geen prijs gevonden voor variant ${variant.name}`)
       throw new Error(`Geen prijs gevonden voor variant ${variant.name}`)
     }
 
@@ -105,7 +116,8 @@ export async function createStripeCheckoutSession({
     }
 
     // Bereken het bedrag in centen voor Stripe
-    const amountInCents = Math.round(price.amount * 100)
+    const amountInCents = Math.round(Number.parseFloat(price.amount) * 100)
+    console.log(`Original amount: ${price.amount}, Amount in cents for Stripe: ${amountInCents}`)
 
     // Maak de checkout sessie aan
     const sessionOptions: any = {
@@ -157,11 +169,31 @@ export async function createStripeCheckoutSession({
 
     console.log("Creating Stripe checkout session with options:", JSON.stringify(sessionOptions, null, 2))
 
-    const session = await stripe.checkout.sessions.create(sessionOptions)
-    console.log(`Stripe session created with ID: ${session.id}`)
+    try {
+      const session = await stripe.checkout.sessions.create(sessionOptions)
+      console.log(`Stripe session created with ID: ${session.id}`)
+      return { sessionId: session.id, isSubscription }
+    } catch (stripeError: any) {
+      console.error("Stripe API error:", stripeError)
 
-    return { sessionId: session.id, isSubscription }
-  } catch (error) {
+      // Gedetailleerde foutafhandeling voor Stripe fouten
+      if (stripeError.type === "StripeCardError") {
+        throw new Error(`Betaalkaart geweigerd: ${stripeError.message}`)
+      } else if (stripeError.type === "StripeInvalidRequestError") {
+        throw new Error(`Ongeldige aanvraag bij betalingsverwerker: ${stripeError.message}`)
+      } else if (stripeError.type === "StripeAPIError") {
+        throw new Error(`Probleem met betalingsverwerker: ${stripeError.message}`)
+      } else if (stripeError.type === "StripeConnectionError") {
+        throw new Error(`Kon geen verbinding maken met betalingsverwerker: ${stripeError.message}`)
+      } else if (stripeError.type === "StripeAuthenticationError") {
+        throw new Error(`Authenticatiefout bij betalingsverwerker: ${stripeError.message}`)
+      } else if (stripeError.type === "StripeRateLimitError") {
+        throw new Error(`Te veel aanvragen naar betalingsverwerker: ${stripeError.message}`)
+      } else {
+        throw new Error(`Fout bij het aanmaken van de betaalsessie: ${stripeError.message}`)
+      }
+    }
+  } catch (error: any) {
     console.error("Error creating Stripe checkout session:", error)
     throw error
   }

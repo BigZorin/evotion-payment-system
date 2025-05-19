@@ -126,7 +126,13 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
         id: product.id,
         public_id: product.public_id,
         name: product.name,
-        selectedVariant: product.selectedVariant,
+        selectedVariant: product.selectedVariant
+          ? {
+              id: product.selectedVariant.id,
+              public_id: product.selectedVariant.public_id,
+              name: product.selectedVariant.name,
+            }
+          : null,
       })
 
       // Controleer of Stripe correct is geladen
@@ -165,36 +171,47 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
 
       console.log("Creating Stripe checkout session with data:", checkoutData)
 
-      // Maak een Stripe checkout sessie aan
-      const { sessionId, isSubscription } = await createStripeCheckoutSession(checkoutData)
+      try {
+        // Maak een Stripe checkout sessie aan
+        const { sessionId, isSubscription } = await createStripeCheckoutSession(checkoutData)
 
-      console.log(`Received Stripe session ID: ${sessionId}, isSubscription: ${isSubscription}`)
+        console.log(`Received Stripe session ID: ${sessionId}, isSubscription: ${isSubscription}`)
 
-      // Laad Stripe
-      const stripe = await loadStripe(stripePublishableKey!)
+        // Laad Stripe
+        const stripe = await loadStripe(stripePublishableKey!)
 
-      if (!stripe) {
-        throw new Error("Stripe kon niet worden geladen")
-      }
+        if (!stripe) {
+          throw new Error("Stripe kon niet worden geladen")
+        }
 
-      console.log("Redirecting to Stripe checkout...")
+        console.log("Redirecting to Stripe checkout...")
 
-      // Redirect naar de Stripe Checkout pagina
-      const { error } = await stripe.redirectToCheckout({
-        sessionId: sessionId,
-      })
-
-      if (error) {
-        console.error("Stripe redirect error:", error)
-        setDebugInfo({
-          message: "Stripe redirect error",
-          error: error,
+        // Redirect naar de Stripe Checkout pagina
+        const { error: redirectError } = await stripe.redirectToCheckout({
           sessionId: sessionId,
         })
 
-        // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
-        router.push(`/checkout/redirect?session_id=${sessionId}`)
-        return
+        if (redirectError) {
+          console.error("Stripe redirect error:", redirectError)
+          setDebugInfo({
+            message: "Stripe redirect error",
+            error: redirectError,
+            sessionId: sessionId,
+          })
+
+          // Als de redirect mislukt, stuur de gebruiker naar de fallback pagina
+          router.push(`/checkout/redirect?session_id=${sessionId}`)
+          return
+        }
+      } catch (checkoutError: any) {
+        console.error("Error creating checkout session:", checkoutError)
+        setError(checkoutError.message || "Er is een fout opgetreden bij het aanmaken van de betaalsessie")
+        setDebugInfo({
+          message: "Checkout session error",
+          error: checkoutError.toString(),
+          stack: checkoutError.stack,
+        })
+        setIsSubmitting(false)
       }
     } catch (error: any) {
       console.error("Checkout error:", error)
