@@ -713,12 +713,15 @@ export async function getRecentActivity(limit = 10, bypassCache = false): Promis
           }
 
           // Voeg betaling toe aan activiteiten
+          const formattedAmount = await formatCurrency(payment.amount)
+          const formattedDate = await formatDate(new Date(payment.created * 1000))
+
           activities.push({
             id: payment.id,
             type: "payment",
             title: "Betaling ontvangen",
-            description: `${formatCurrency(payment.amount)} betaling ontvangen voor ${productName} van ${customerName}`,
-            time: formatDate(new Date(payment.created * 1000)),
+            description: `${formattedAmount} betaling ontvangen voor ${productName} van ${customerName}`,
+            time: formattedDate,
             timestamp: new Date(payment.created * 1000),
           })
 
@@ -747,7 +750,7 @@ export async function getRecentActivity(limit = 10, bypassCache = false): Promis
                   type: "enrollment",
                   title: "Nieuwe inschrijving",
                   description: `${customerName} heeft zich ingeschreven voor ${courseName}`,
-                  time: formatDate(new Date(payment.created * 1000)),
+                  time: formattedDate,
                   timestamp: new Date(payment.created * 1000),
                 })
               }
@@ -758,19 +761,22 @@ export async function getRecentActivity(limit = 10, bypassCache = false): Promis
                 type: "enrollment",
                 title: "Nieuwe inschrijving",
                 description: `${customerName} heeft zich ingeschreven voor een cursus`,
-                time: formatDate(new Date(payment.created * 1000)),
+                time: formattedDate,
                 timestamp: new Date(payment.created * 1000),
               })
             }
           }
         } else if (payment.status === "requires_payment_method" || payment.status === "canceled") {
           // Voeg mislukte betalingen toe
+          const formattedAmount = await formatCurrency(payment.amount)
+          const formattedDate = await formatDate(new Date(payment.created * 1000))
+
           activities.push({
             id: payment.id,
             type: "error",
             title: "Betaling mislukt",
-            description: `Betaling van ${formatCurrency(payment.amount)} is mislukt of geannuleerd`,
-            time: formatDate(new Date(payment.created * 1000)),
+            description: `Betaling van ${formattedAmount} is mislukt of geannuleerd`,
+            time: formattedDate,
             timestamp: new Date(payment.created * 1000),
           })
         }
@@ -859,6 +865,7 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
 
           try {
             const courseIds = JSON.parse(payment.metadata.clickfunnels_course_ids as string)
+            const formattedDate = await formatDate(new Date(payment.created * 1000))
 
             for (const courseId of courseIds) {
               // Bepaal cursusnaam
@@ -881,20 +888,22 @@ export async function getRecentEnrollments(limit = 10, bypassCache = false): Pro
                 email: customerEmail,
                 course: courseName,
                 courseId: courseId,
-                date: formatDate(new Date(payment.created * 1000)),
+                date: formattedDate,
                 timestamp: new Date(payment.created * 1000),
                 status: "success",
               })
             }
           } catch (e) {
             // Als het geen geldige JSON is, voeg dan één enrollment toe
+            const formattedDate = await formatDate(new Date(payment.created * 1000))
+
             enrollments.push({
               id: `${payment.id}_enrollment`,
               name: customerName,
               email: customerEmail,
               course: "Onbekende cursus",
               courseId: "",
-              date: formatDate(new Date(payment.created * 1000)),
+              date: formattedDate,
               timestamp: new Date(payment.created * 1000),
               status: "success",
             })

@@ -4,7 +4,6 @@ import { fetchWithRateLimiting } from "./api-helpers"
 import { CLICKFUNNELS_API_TOKEN, CLICKFUNNELS_SUBDOMAIN } from "./config"
 import { apiCache } from "./cache"
 import type { ClickFunnelsContact } from "./types"
-import { isValidVariant as isValidVariantHelper } from "./clickfunnels-helpers"
 
 // Deze waarden moeten worden ingesteld als omgevingsvariabelen
 const CLICKFUNNELS_SUBDOMAIN_OLD = process.env.CLICKFUNNELS_SUBDOMAIN || "myworkspace" // Vervang met je subdomain
@@ -334,13 +333,20 @@ export async function getProductWithVariantsAndPrices(productId: string): Promis
     console.log(`Total prices fetched for product ID ${productId}: ${allPrices.length}`)
 
     // Filter out invalid variants (archived, deleted, or without valid prices)
-    const validVariants = allVariants.filter(isValidVariantHelper)
-    console.log(`Found ${validVariants.length} valid variants out of ${allVariants.length} total variants`)
+    const validVariants = await Promise.all(
+      allVariants.map(async (v) => {
+        const isValid = await isValidVariant(v)
+        return isValid ? v : null
+      }),
+    )
+    const filteredVariants = validVariants.filter((v) => v !== null) as ClickfunnelsVariant[]
+
+    console.log(`Found ${filteredVariants.length} valid variants out of ${allVariants.length} total variants`)
 
     // Return the product with valid variants and prices
     return {
       ...product,
-      variants: validVariants,
+      variants: filteredVariants,
       prices: allPrices,
     }
   } catch (error) {
@@ -389,11 +395,17 @@ export async function getAllProductsWithVariants(): Promise<ClickfunnelsProduct[
           }
 
           // Filter out invalid variants
-          const validVariants = allVariants.filter(isValidVariantHelper)
+          const validVariants = await Promise.all(
+            allVariants.map(async (v) => {
+              const isValid = await isValidVariant(v)
+              return isValid ? v : null
+            }),
+          )
+          const filteredVariants = validVariants.filter((v) => v !== null) as ClickfunnelsVariant[]
 
           return {
             ...product,
-            variants: validVariants,
+            variants: filteredVariants,
             prices: allPrices,
           }
         } catch (error) {
