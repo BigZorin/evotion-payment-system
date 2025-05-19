@@ -1,12 +1,11 @@
-// Verbeter de error handling en voeg rate limiting toe
 import { type NextRequest, NextResponse } from "next/server"
 import { stripe } from "@/lib/stripe-server"
-import { getClickFunnelsProducts } from "@/lib/admin"
-import { z } from "zod" // Importeer zod voor validatie
+import { getClickfunnelsVariant, getClickfunnelsPrice } from "@/lib/clickfunnels"
+import { z } from "zod"
 
 // Schema voor validatie van de request body
 const checkoutSchema = z.object({
-  productId: z.string().min(1, "Product ID is verplicht"),
+  variantId: z.string().min(1, "Variant ID is verplicht"),
   customerEmail: z.string().email("Geldig e-mailadres is verplicht"),
   customerFirstName: z.string().min(1, "Voornaam is verplicht"),
   customerLastName: z.string().min(1, "Achternaam is verplicht"),
@@ -23,83 +22,22 @@ const checkoutSchema = z.object({
     .optional(),
 })
 
-// Cache voor producten om herhaalde API-aanroepen te voorkomen
-let productsCache: any[] = []
-let productsCacheTime = 0
-const CACHE_TTL = 5 * 60 * 1000 // 5 minuten cache
-
-// Eenvoudige rate limiting implementatie
-const RATE_LIMIT_WINDOW = 60 * 1000 // 1 minuut
-const MAX_REQUESTS_PER_WINDOW = 10 // 10 requests per minuut
-const ipRequestCounts = new Map<string, { count: number; resetTime: number }>()
-
-// Functie om producten op te halen met caching
-async function getProductsWithCache() {
-  const now = Date.now()
-  if (productsCache.length === 0 || now - productsCacheTime > CACHE_TTL) {
-    console.log("Cache miss: Fetching products from API")
-    productsCache = await getClickFunnelsProducts()
-    productsCacheTime = now
-  } else {
-    console.log("Cache hit: Using cached products")
-  }
-  return productsCache
-}
-
-// Controleer of Stripe correct is geconfigureerd
-function validateStripeConfig() {
-  if (!process.env.STRIPE_SECRET_KEY) {
-    throw new Error("STRIPE_SECRET_KEY is niet geconfigureerd in de omgevingsvariabelen")
-  }
-
-  if (!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
-    console.warn("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is niet geconfigureerd in de omgevingsvariabelen")
-  }
-
-  return true
-}
-
 export async function POST(req: NextRequest) {
   try {
+    console.log("Received checkout request")
+
     // Controleer Stripe configuratie
-    validateStripeConfig()
-
-    // Performance meting starten
-    const startTime = performance.now()
-
-    // Basis rate limiting implementatie
-    const ip = req.ip || "unknown"
-    const now = Date.now()
-
-    // Controleer en update rate limiting
-    const ipData = ipRequestCounts.get(ip) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW }
-
-    // Reset counter als de window is verlopen
-    if (now > ipData.resetTime) {
-      ipData.count = 0
-      ipData.resetTime = now + RATE_LIMIT_WINDOW
-    }
-
-    ipData.count++
-    ipRequestCounts.set(ip, ipData)
-
-    // Controleer of rate limit is overschreden
-    if (ipData.count > MAX_REQUESTS_PER_WINDOW) {
-      console.warn(`Rate limit exceeded for IP: ${ip}`)
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error("STRIPE_SECRET_KEY is niet geconfigureerd")
       return NextResponse.json(
-        { error: "Te veel aanvragen. Probeer het later opnieuw." },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": `${Math.ceil((ipData.resetTime - now) / 1000)}`,
-          },
-        },
+        { error: "Stripe is niet correct geconfigureerd. Neem contact op met de beheerder." },
+        { status: 500 },
       )
     }
 
     // Request body parsen
     const body = await req.json()
-    console.log("Received checkout request:", JSON.stringify(body, null, 2))
+    console.log("Received checkout request body:", JSON.stringify(body, null, 2))
 
     // Valideer de input met Zod
     const validationResult = checkoutSchema.safeParse(body)
@@ -115,7 +53,7 @@ export async function POST(req: NextRequest) {
     }
 
     const {
-      productId,
+      variantId,
       customerEmail,
       customerFirstName,
       customerLastName,
@@ -124,101 +62,66 @@ export async function POST(req: NextRequest) {
       companyDetails,
     } = validationResult.data
 
-    // Haal producten op met caching
-    const clickfunnelsProducts = await getProductsWithCache()
-    console.log(`Fetched ${clickfunnelsProducts.length} products from cache/API`)
-
-    // Filter op niet-gearchiveerde producten
-    const activeProducts = clickfunnelsProducts.filter((product) => product.archived !== true)
-    console.log(`Found ${activeProducts.length} active products`)
-
-    // Zoek het product op basis van ID of public_id
-    let targetProduct = activeProducts.find(
-      (p) => p.public_id === productId || p.id.toString() === productId || `cf-${p.id}` === productId,
-    )
-
-    // Speciale behandeling voor producten op basis van naam
-    if (!targetProduct) {
-      console.log(`Product with ID ${productId} not found, trying to find by name or slug`)
-
-      // Controleer of productId een slug is (bijv. "online-coaching")
-      if (productId.includes("-")) {
-        const slugParts = productId.split("-")
-        // Zoek producten die alle delen van de slug in hun naam hebben
-        const possibleProducts = activeProducts.filter((p) => {
-          const name = p.name.toLowerCase()
-          return slugParts.every((part) => name.includes(part.toLowerCase()))
-        })
-
-        if (possibleProducts.length > 0) {
-          console.log(`Found ${possibleProducts.length} products matching slug ${productId}`)
-          targetProduct = possibleProducts[0] // Neem de eerste match
-        }
-      }
-
-      // Specifieke gevallen
-      if (!targetProduct && productId === "12-weken-vetverlies") {
-        console.log("Looking for 12-weken-vetverlies product")
-        targetProduct = activeProducts.find((p) => p.name.toLowerCase().includes("12-weken vetverlies"))
-      }
-
-      if (!targetProduct && (productId === "online-coaching" || productId.includes("coaching"))) {
-        console.log("Looking for online coaching product")
-        targetProduct = activeProducts.find((p) => p.name.toLowerCase().includes("coaching"))
-      }
+    // Haal de variant op
+    console.log(`Fetching variant with ID ${variantId}`)
+    const variant = await getClickfunnelsVariant(variantId)
+    if (!variant) {
+      console.error(`Variant with ID ${variantId} not found`)
+      return NextResponse.json({ error: `Variant met ID ${variantId} niet gevonden` }, { status: 404 })
     }
 
-    if (!targetProduct) {
-      console.log(`Product with ID ${productId} not found after all attempts`)
-      return NextResponse.json({ error: `Product met ID ${productId} niet gevonden` }, { status: 404 })
-    }
+    console.log(`Found variant: ${variant.name} (ID: ${variant.id})`)
 
-    console.log(`Found product: ${targetProduct.name} (ID: ${targetProduct.id})`)
-
-    // Bepaal de prijs
-    let amount = 0
-    let currency = "eur"
-    let isRecurring = false
+    // Haal de prijs op
+    let price = null
+    let isSubscription = false
     let recurringInterval = "month"
     let recurringIntervalCount = 1
 
-    if (targetProduct.defaultPrice) {
-      amount = Number.parseFloat(targetProduct.defaultPrice.amount)
-      currency = targetProduct.defaultPrice.currency || "eur"
-      isRecurring = targetProduct.defaultPrice.recurring || false
-      if (isRecurring) {
-        recurringInterval = targetProduct.defaultPrice.recurring_interval || "month"
-        recurringIntervalCount = targetProduct.defaultPrice.recurring_interval_count || 1
+    if (variant.prices && variant.prices.length > 0) {
+      price = variant.prices[0]
+      isSubscription = price.recurring === true
+      if (isSubscription) {
+        recurringInterval = price.recurring_interval || "month"
+        recurringIntervalCount = price.recurring_interval_count || 1
       }
-    } else if (targetProduct.prices && targetProduct.prices.length > 0) {
-      amount = Number.parseFloat(targetProduct.prices[0].amount)
-      currency = targetProduct.prices[0].currency || "eur"
-      isRecurring = targetProduct.prices[0].recurring || false
-      if (isRecurring) {
-        recurringInterval = targetProduct.prices[0].recurring_interval || "month"
-        recurringIntervalCount = targetProduct.prices[0].recurring_interval_count || 1
+      console.log(`Using price from variant.prices:`, JSON.stringify(price, null, 2))
+    } else if (variant.price_ids && variant.price_ids.length > 0) {
+      try {
+        const priceId = variant.price_ids[0]
+        console.log(`Fetching price with ID ${priceId}`)
+        price = await getClickfunnelsPrice(priceId)
+        console.log(`Fetched price:`, JSON.stringify(price, null, 2))
+        isSubscription = price.recurring === true
+        if (isSubscription) {
+          recurringInterval = price.recurring_interval || "month"
+          recurringIntervalCount = price.recurring_interval_count || 1
+        }
+      } catch (error) {
+        console.error(`Error fetching price for variant ${variant.id}:`, error)
+        return NextResponse.json({ error: `Kon de prijs voor variant ${variant.name} niet ophalen` }, { status: 500 })
       }
-    } else {
-      // Fallback prijs als er geen prijsinformatie beschikbaar is
-      console.log("No price information found, using fallback price")
-      amount = 50.0 // €50,00
     }
 
-    // Controleer of het bedrag in centen of euro's is
-    // Als het bedrag een string is met een decimaalpunt, dan is het in euro's
-    // We moeten het omzetten naar centen voor Stripe
-    const amountInCents = Math.round(amount * 100)
-    console.log(`Original amount: ${amount}, Amount in cents for Stripe: ${amountInCents}`)
+    if (!price) {
+      console.error(`No price found for variant ${variant.name}`)
+      return NextResponse.json({ error: `Geen prijs gevonden voor variant ${variant.name}` }, { status: 404 })
+    }
+
+    console.log(
+      `Price found: ${price.amount} ${price.currency || "EUR"} (${isSubscription ? "subscription" : "one-time"})`,
+    )
 
     // Bepaal de success en cancel URLs
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://betalen.evotion-coaching.nl"
     const successUrl = `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`
-    const cancelUrl = `${baseUrl}/checkout/${productId}`
+    const cancelUrl = `${baseUrl}/checkout/${variant.product_id}/variant/${variantId}`
 
     // Stel de metadata samen
     const metadata: Record<string, string> = {
-      productId: targetProduct.id.toString(),
-      productName: targetProduct.name,
+      variantId: variant.id.toString(),
+      variantName: variant.name,
+      productId: variant.product_id?.toString() || "",
       email: customerEmail,
       first_name: customerFirstName,
       last_name: customerLastName,
@@ -229,16 +132,6 @@ export async function POST(req: NextRequest) {
     if (customerPhone) metadata.phone = customerPhone
     if (customerBirthDate) metadata.birth_date = customerBirthDate
 
-    // Voeg ClickFunnels specifieke metadata toe
-    metadata.clickfunnels_product_id = targetProduct.id.toString()
-    if (targetProduct.public_id) metadata.clickfunnels_public_id = targetProduct.public_id
-    if (targetProduct.default_variant_id) metadata.clickfunnels_variant_id = targetProduct.default_variant_id.toString()
-
-    // Voeg cursus IDs toe als ze beschikbaar zijn
-    if (targetProduct.name.toLowerCase().includes("12-weken vetverlies")) {
-      metadata.clickfunnels_course_ids = JSON.stringify(["eWbLVk", "vgDnxN", "JMaGxK"])
-    }
-
     // Voeg bedrijfsgegevens toe aan metadata als ze bestaan
     if (companyDetails) {
       metadata.company_name = companyDetails.name
@@ -248,32 +141,44 @@ export async function POST(req: NextRequest) {
       if (companyDetails.city) metadata.company_city = companyDetails.city
     }
 
-    // Maak de checkout sessie aan met timeout
+    // Bereken het bedrag in centen voor Stripe
+    const amountInCents = Math.round(Number.parseFloat(price.amount) * 100)
+    console.log(`Original amount: ${price.amount}, Amount in cents for Stripe: ${amountInCents}`)
+
+    // Maak de checkout sessie aan
     const sessionOptions: any = {
       payment_method_types: ["card", "ideal"],
       line_items: [
         {
           price_data: {
-            currency: currency,
+            currency: price.currency || "eur",
             product_data: {
-              name: targetProduct.name,
-              description: targetProduct.description || "",
+              name: variant.name,
+              description: variant.description || "",
               metadata: {
-                productId: targetProduct.id.toString(),
-                clickfunnels_product_id: targetProduct.id.toString(),
+                variantId: variant.id.toString(),
+                productId: variant.product_id?.toString() || "",
               },
             },
-            unit_amount: amountInCents, // Gebruik het bedrag in centen
+            unit_amount: amountInCents,
+            ...(isSubscription
+              ? {
+                  recurring: {
+                    interval: recurringInterval,
+                    interval_count: recurringIntervalCount,
+                  },
+                }
+              : {}),
           },
           quantity: 1,
         },
       ],
-      mode: isRecurring ? "subscription" : "payment",
+      mode: isSubscription ? "subscription" : "payment",
       success_url: successUrl,
       cancel_url: cancelUrl,
       customer_email: customerEmail,
       metadata,
-      payment_intent_data: isRecurring
+      payment_intent_data: isSubscription
         ? undefined
         : {
             metadata, // Dupliceer metadata in payment intent voor webhook toegang
@@ -281,57 +186,56 @@ export async function POST(req: NextRequest) {
       invoice_creation: {
         enabled: true,
       },
+      // Voeg customer portal toe
+      billing_address_collection: "auto",
+      customer_creation: "always",
+      // Zorg ervoor dat klanten hun facturen en abonnementen kunnen beheren
+      allow_promotion_codes: true,
     }
 
     console.log("Creating Stripe checkout session with options:", JSON.stringify(sessionOptions, null, 2))
 
-    const sessionPromise = stripe.checkout.sessions.create(sessionOptions)
+    try {
+      const session = await stripe.checkout.sessions.create(sessionOptions)
+      console.log(`Stripe session created with ID: ${session.id}`)
+      return NextResponse.json({ sessionId: session.id, isSubscription })
+    } catch (stripeError: any) {
+      console.error("Stripe API error:", stripeError)
 
-    // Voeg timeout toe aan de Stripe API aanroep
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Stripe API timeout")), 10000) // 10 seconden timeout
-    })
-
-    // Race tussen de Stripe API aanroep en de timeout
-    const session = (await Promise.race([sessionPromise, timeoutPromise])) as any
-    console.log(`Stripe session created with ID: ${session.id}`)
-
-    // Performance meting eindigen
-    const endTime = performance.now()
-    console.log(`Checkout session created in ${Math.round(endTime - startTime)}ms`)
-
-    return NextResponse.json({ sessionId: session.id })
+      // Gedetailleerde foutafhandeling voor Stripe fouten
+      if (stripeError.type === "StripeCardError") {
+        return NextResponse.json({ error: `Betaalkaart geweigerd: ${stripeError.message}` }, { status: 400 })
+      } else if (stripeError.type === "StripeInvalidRequestError") {
+        return NextResponse.json(
+          { error: `Ongeldige aanvraag bij betalingsverwerker: ${stripeError.message}` },
+          { status: 400 },
+        )
+      } else if (stripeError.type === "StripeAPIError") {
+        return NextResponse.json({ error: `Probleem met betalingsverwerker: ${stripeError.message}` }, { status: 500 })
+      } else if (stripeError.type === "StripeConnectionError") {
+        return NextResponse.json(
+          { error: `Kon geen verbinding maken met betalingsverwerker: ${stripeError.message}` },
+          { status: 503 },
+        )
+      } else if (stripeError.type === "StripeAuthenticationError") {
+        return NextResponse.json(
+          { error: `Authenticatiefout bij betalingsverwerker: ${stripeError.message}` },
+          { status: 500 },
+        )
+      } else if (stripeError.type === "StripeRateLimitError") {
+        return NextResponse.json(
+          { error: `Te veel aanvragen naar betalingsverwerker: ${stripeError.message}` },
+          { status: 429 },
+        )
+      } else {
+        return NextResponse.json(
+          { error: `Fout bij het aanmaken van de betaalsessie: ${stripeError.message}` },
+          { status: 500 },
+        )
+      }
+    }
   } catch (error: any) {
     console.error("Error creating checkout session:", error)
-
-    // Specifieke foutafhandeling voor Stripe configuratie problemen
-    if (error.message && error.message.includes("STRIPE_SECRET_KEY")) {
-      return NextResponse.json(
-        {
-          error: "Stripe is niet correct geconfigureerd. Neem contact op met de beheerder.",
-          details: error.message,
-        },
-        { status: 500 },
-      )
-    }
-
-    // Gedetailleerde foutafhandeling
-    if (error.type === "StripeCardError") {
-      return NextResponse.json({ error: "Betaalkaart geweigerd" }, { status: 400 })
-    } else if (error.type === "StripeInvalidRequestError") {
-      return NextResponse.json({ error: "Ongeldige aanvraag bij betalingsverwerker" }, { status: 400 })
-    } else if (error.type === "StripeAPIError") {
-      return NextResponse.json({ error: "Probleem met betalingsverwerker" }, { status: 500 })
-    } else if (error.type === "StripeConnectionError") {
-      return NextResponse.json({ error: "Kon geen verbinding maken met betalingsverwerker" }, { status: 503 })
-    } else if (error.type === "StripeAuthenticationError") {
-      return NextResponse.json({ error: "Authenticatiefout bij betalingsverwerker" }, { status: 500 })
-    } else if (error.type === "StripeRateLimitError") {
-      return NextResponse.json({ error: "Te veel aanvragen naar betalingsverwerker" }, { status: 429 })
-    } else if (error.message === "Stripe API timeout") {
-      return NextResponse.json({ error: "Timeout bij betalingsverwerker" }, { status: 504 })
-    }
-
     return NextResponse.json({ error: error.message || "Er is een fout opgetreden" }, { status: 500 })
   }
 }

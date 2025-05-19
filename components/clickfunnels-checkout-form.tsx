@@ -14,7 +14,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { loadStripe } from "@stripe/stripe-js"
 import { formatCurrency } from "@/lib/utils"
-import { createStripeCheckoutSession } from "@/lib/stripe-checkout"
 
 // Formulier schema
 const formSchema = z.object({
@@ -115,8 +114,9 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
   })
 
   // Formulier verzenden
-  const onSubmit = async (data: FormValues) => {
+  const handleSubmit = async (data: FormValues) => {
     try {
+      console.log("Form submitted with data:", data)
       setIsSubmitting(true)
       setError(null)
       setDebugInfo(null)
@@ -173,9 +173,21 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
 
       try {
         // Maak een Stripe checkout sessie aan
-        const { sessionId, isSubscription } = await createStripeCheckoutSession(checkoutData)
+        const response = await fetch("/api/checkout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(checkoutData),
+        })
 
-        console.log(`Received Stripe session ID: ${sessionId}, isSubscription: ${isSubscription}`)
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || "Er is een fout opgetreden bij het aanmaken van de betaalsessie")
+        }
+
+        const { sessionId } = await response.json()
+        console.log(`Received Stripe session ID: ${sessionId}`)
 
         // Laad Stripe
         const stripe = await loadStripe(stripePublishableKey!)
@@ -222,6 +234,21 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
         stack: error.stack,
       })
       setIsSubmitting(false)
+    }
+  }
+
+  // Directe submit handler als fallback
+  const handleDirectSubmit = async () => {
+    console.log("Direct submit button clicked")
+    const isValid = await form.trigger()
+    if (isValid) {
+      const values = form.getValues()
+      console.log("Form is valid, submitting with values:", values)
+      await handleSubmit(values)
+    } else {
+      console.log("Form validation failed")
+      const errors = form.formState.errors
+      console.log("Form errors:", errors)
     }
   }
 
@@ -288,7 +315,7 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6" id="checkout-form">
             <div className="space-y-4">
               <FormField
                 control={form.control}
@@ -481,6 +508,7 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
               </div>
             )}
 
+            {/* Normale submit button binnen het formulier */}
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
@@ -496,6 +524,29 @@ export function ClickFunnelsCheckoutForm({ product, isSubscription = false }: Ch
             </Button>
           </form>
         </Form>
+
+        {/* Fallback button buiten het formulier */}
+        <div className="mt-4">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={handleDirectSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Bezig met verwerken...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Alternatieve betaalmethode
+              </>
+            )}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )
